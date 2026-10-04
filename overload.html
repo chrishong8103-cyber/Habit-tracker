@@ -137,7 +137,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--line);border
       <label class="field"><span>Starts the week of</span><input id="sStart" type="date"></label>
       <label class="field"><span>Smallest dumbbell / machine jump</span><select id="sJump"></select></label>
     </div>
-    <div class="field"><span>Training days (2 to 6)</span>
+    <div class="field"><span>Usual training days (2 to 6). You can pick different days for any single week in the plan.</span>
       <div class="seg" id="sDays"></div>
     </div>
     <div class="field"><span>Your best recent set on the main lifts (weight × reps). Leave blank to set the weight on day one.</span>
@@ -161,6 +161,10 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--line);border
       <button class="btn ghost small" id="editBtn" type="button" hidden>Edit program</button>
     </div>
     <div class="weeks" id="weeks" role="group" aria-label="Weeks"></div>
+    <div class="field"><span id="wdLabel">Days you can train this week</span>
+      <div class="seg" id="weekDays"></div>
+    </div>
+    <div class="actions"><span class="note" id="wdNote"></span><button class="swap" id="wdReset" type="button" hidden>Use my usual days</button></div>
   </section>
   <section class="sessions" id="sessions"></section>
 
@@ -177,6 +181,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--line);border
       <li><b>Main barbell lifts, intermediate:</b> 3-week waves off a training max (90% of your estimated 1-rep max). Reps go down and load goes up each week. If you complete every session in a wave, the training max goes up for the next wave.</li>
       <li><b>Everything else:</b> double progression. Start at the bottom of the rep range and add a rep each time you complete it. At the top of the range, add the smallest jump and go back to the bottom.</li>
       <li><b>Too easy</b> moves you forward twice as fast. <b>Missed</b> keeps the same target for next time.</li>
+      <li><b>Flexible weeks:</b> pick different days for any week and the sessions rotate in order (A, B, C, A…) onto the days you choose. A past session you didn't log counts as skipped, so the weight doesn't go up for it.</li>
       <li><b>Deload weeks</b> cut the sets and the load so you recover, and they don't count toward progression.</li>
     </ul>
   </section>
@@ -297,12 +302,16 @@ function build(cfg, logs){
   }
   const start = monday(cfg.start || ymd(new Date())), sessions = [];
   const dl = cfg.deload | 0, isDeload = w => dl > 0 && w % dl === 0;
-  for (let w = 1; w <= cfg.weeks; w++) dayPlans.forEach((dp, d) => {
-    const date = addDays(start, (w - 1) * 7 + MONFIRST.indexOf(days[d]));
-    const s = { w, d, date, title: dp.title, deload: isDeload(w), lifts: dp.slots.map(sl => ({ ...sl, key: `${w}-${d}-${sl.id}` })) };
-    s.lifts.forEach(l => info[l.id].occ.push({ key: l.key, w }));
+  // sessions rotate A → B → C … across whatever days each week has, so a short week just continues next week
+  const sortDays = a => [...a].sort((x, y) => MONFIRST.indexOf(x) - MONFIRST.indexOf(y));
+  let n = 0;
+  for (let w = 1; w <= cfg.weeks; w++) sortDays(cfg.weekDays?.[w] ?? days).forEach((wd, d) => {
+    const dp = dayPlans[n++ % dayPlans.length], date = addDays(start, (w - 1) * 7 + MONFIRST.indexOf(wd));
+    const s = { w, d, date, title: dp.title, deload: isDeload(w), lifts: dp.slots.map(sl => ({ ...sl, key: `${date}-${sl.id}` })) };
+    s.lifts.forEach(l => info[l.id].occ.push({ key: l.key, w, date }));
     sessions.push(s);
   });
+  const today = ymd(new Date());
   // a lift trained 2+ times a week moves in half steps so the plan stays realistic
   for (const o of Object.values(info)) if (o.model === "linear" && o.occ.filter(x => x.w === 1).length >= 2) o.inc = Math.max(o.step, o.inc / 2);
   // walk each exercise's sessions in order; logged results drive the next target, future sessions assume "done"
@@ -311,7 +320,7 @@ function build(cfg, logs){
   for (const o of Object.values(info)) {
     let wt = o.start, reps = o.lo, misses = 0, cycle = -1, cycMiss = 0, cycAny = false;
     o.occ.forEach((oc, i) => {
-      const r = logs[oc.key]?.r, deload = isDeload(oc.w);
+      const r = logs[oc.key]?.r, deload = isDeload(oc.w), skipped = !r && oc.date < today; // past and never logged: no progress
       if (o.model === "wave") {
         const k = nd(oc.w) - 1, c = Math.floor(k / 3);
         if (!deload && c !== cycle) {
@@ -321,13 +330,13 @@ function build(cfg, logs){
         if (deload) { rx[oc.key] = { sets: 3, reps: 5, weight: wt == null ? null : roundTo(wt * 0.6, o.step), deload, o }; return; }
         const [sets, rp, pct] = WAVE[cfg.goal][k % 3];
         rx[oc.key] = { sets, reps: rp, weight: wt == null ? null : roundTo(wt * pct, o.step), tm: wt, o };
-        if (wt != null) { cycAny = true; if (r === "miss") cycMiss++; }
+        if (wt != null && !skipped) { cycAny = true; if (r === "miss") cycMiss++; }
         return;
       }
       if (o.model === "linear") {
         if (deload) { rx[oc.key] = { sets: 2, reps: o.lo, weight: wt == null ? null : roundTo(wt * 0.9, o.step), deload, o }; return; }
         rx[oc.key] = { sets: o.sets, reps: o.lo, weight: wt, o };
-        if (wt == null) return;
+        if (wt == null || skipped) return;
         if (r === "miss") { if (++misses >= 2) { wt = roundTo(wt * 0.9, o.step); misses = 0; } }
         else { wt += r === "easy" ? 2 * o.inc : o.inc; misses = 0; }
         return;
@@ -335,7 +344,7 @@ function build(cfg, logs){
       // double progression
       if (deload) { rx[oc.key] = { sets: Math.max(2, o.sets - 1), reps: o.lo, weight: wt, deload, range: [o.lo, o.hi], o }; return; }
       rx[oc.key] = { sets: o.sets, reps, weight: wt, range: [o.lo, o.hi], o };
-      if (wt == null || r === "miss") return;
+      if (wt == null || skipped || r === "miss") return;
       reps += r === "easy" ? 2 : 1;
       if (reps > o.hi) { wt += o.inc; reps = o.lo; }
     });
@@ -476,6 +485,10 @@ function render(){
   const wStart = addDays(p.start, (S.week - 1) * 7);
   $("#weekTitle").textContent = `Week ${S.week}${p.isDeload(S.week) ? " · Deload" : ""} · ${P(wStart).toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
 
+  const wdays = cfg.weekDays?.[S.week] ?? cfg.days, custom = !!cfg.weekDays?.[S.week];
+  $("#weekDays").innerHTML = MONFIRST.map(w => `<button type="button" data-wd="${w}" aria-pressed="${wdays.includes(w)}">${EN[w]}</button>`).join("");
+  $("#wdNote").textContent = !wdays.length ? "No training this week. The rotation picks up next week." : custom ? "Custom days for this week only." : "Your usual days. Tap to change them for this week only.";
+  $("#wdReset").hidden = !custom;
   const today = ymd(new Date());
   $("#sessions").innerHTML = p.sessions.filter(s => s.w === S.week).map(s => {
     const dt = P(s.date);
@@ -543,6 +556,17 @@ function renderCharts(p, cfg, editing){
 
 /* ---------- interactions ---------- */
 $("#weeks").onclick = e => { const b = e.target.closest("[data-w]"); if (b) { S.week = +b.dataset.w; render(); } };
+async function setWeekDays(list){
+  const preview = S.editing || !S.saved, target = preview ? S.draft : JSON.parse(JSON.stringify(S.saved));
+  const wk = { ...(target.weekDays || {}) }, same = list.length === target.days.length && list.every(d => target.days.includes(d));
+  if (same || list == null) delete wk[S.week]; else wk[S.week] = list;
+  target.weekDays = wk;
+  if (preview) render(); else await saveProgram(target);
+}
+$("#weekDays").onclick = e => { const b = e.target.closest("[data-wd]"); if (!b) return;
+  const cfg = S.editing || !S.saved ? S.draft : S.saved, cur = [...(cfg.weekDays?.[S.week] ?? cfg.days)], v = +b.dataset.wd;
+  setWeekDays(cur.includes(v) ? cur.filter(x => x !== v) : [...cur, v]); };
+$("#wdReset").onclick = () => { const cfg = S.editing || !S.saved ? S.draft : S.saved; setWeekDays([...cfg.days]); };
 $("#sessions").addEventListener("click", async e => {
   const lg = e.target.closest("[data-log]");
   if (lg) { if (!S.saved || S.editing) return toast("Save the program first to log sessions."); setLog(lg.dataset.log, lg.dataset.r); return; }
