@@ -144,6 +144,7 @@ textarea{resize:vertical;min-height:64px}
     <button class="tab" role="tab" data-tab="study" style="--c:var(--study)">Study</button>
     <button class="tab" role="tab" data-tab="trends">Trends</button>
     <button class="tab" role="tab" data-tab="goals">Goals</button>
+    <button class="tab" role="tab" data-tab="health">Apple Health</button>
   </nav>
 
   <!-- WORKOUT -->
@@ -315,6 +316,40 @@ textarea{resize:vertical;min-height:64px}
       <p class="note">If a day has study blocks planned, the study ring uses the planned minutes instead of this number.</p>
     </div>
   </section>
+
+  <!-- APPLE HEALTH -->
+  <section class="panel" data-panel="health" hidden>
+    <div class="cols">
+      <div class="card">
+        <h2>Import from Apple Health</h2>
+        <form id="ahForm">
+          <label class="field"><span>Health export file (export.zip or export.xml)</span><input id="ahFile" type="file" accept=".zip,.xml,application/zip,text/xml"></label>
+          <div class="row">
+            <label class="field"><span>How far back</span><select id="ahRange"><option value="30">Last 30 days</option><option value="90" selected>Last 90 days</option><option value="365">Last year</option></select></label>
+            <div class="field"><span>Bring in</span>
+              <div class="row" style="gap:12px;align-items:center;min-height:38px">
+                <label><input type="checkbox" id="ahSleep" checked style="width:auto"> Sleep</label>
+                <label><input type="checkbox" id="ahWk" checked style="width:auto"> Workouts</label>
+                <label><input type="checkbox" id="ahSteps" checked style="width:auto"> Steps</label>
+              </div></div>
+          </div>
+          <div class="row"><button class="btn" type="submit" id="ahGo" style="flex:0 0 auto">Import</button></div>
+          <div class="note mono" id="ahProg" aria-live="polite"></div>
+        </form>
+      </div>
+      <div class="card">
+        <h2>How to get the file</h2>
+        <ol class="note" style="margin:0;padding-left:1.2em;display:grid;gap:4px">
+          <li>On your iPhone, open the <b>Health</b> app.</li>
+          <li>Tap your profile picture (top right), then <b>Export All Health Data</b> → <b>Export</b>. It can take a few minutes.</li>
+          <li>Choose <b>Save to Files</b>.</li>
+          <li>Open this page, go to this tab and pick <b>export.zip</b> above.</li>
+        </ol>
+        <p class="note" style="margin:0">Your file is read on your device. Only the daily totals for the days you choose are saved to Daybook, not the whole export. Importing again updates those days and doesn't create duplicates. Sleep you typed in yourself is kept as it is.</p>
+        <div class="note" id="ahLast"></div>
+      </div>
+    </div>
+  </section>
 </div>
 <div class="toast" id="toast" hidden></div>
 
@@ -417,7 +452,7 @@ function dayStats(day){
     kcal: ml.reduce((a,e)=>a+num(e.kcal),0), protein: ml.reduce((a,e)=>a+num(e.protein),0),
     carbs: ml.reduce((a,e)=>a+num(e.carbs),0), fat: ml.reduce((a,e)=>a+num(e.fat),0), meals: ml.length,
     sleepH: sl.length ? num(sl[0].hours) : 0, sleepQ: sl.length ? sl[0].quality : null,
-    studyMin: st.reduce((a,e)=>a+num(e.minutes),0), studyGoal: planned || S.goals.studyMin,
+    studyMin: st.reduce((a,e)=>a+num(e.minutes),0), steps: onDay("steps", day).reduce((a,e)=>Math.max(a,num(e.steps)),0), studyGoal: planned || S.goals.studyMin,
   };
 }
 
@@ -474,7 +509,9 @@ function renderWorkout(dayWord){
     if (e.type === "run") { const pace = e.km ? e.minutes / e.km : 0;
       what = `Run · ${num(e.km).toFixed(2)} km`; meta = `${fmtMin(e.minutes)} · ${pace ? `${Math.floor(pace)}:${pad(Math.round((pace%1)*60))} /km` : ""} · ${esc(e.runKind||"")}`; }
     else if (e.type === "sport") { what = esc(e.sport || "Sport"); meta = `${fmtMin(e.minutes)} · ${esc(e.intensity||"")}`; }
+    else if (!e.sets) { what = esc(e.exercise || "Strength"); meta = fmtMin(num(e.minutes)); }
     else { what = esc(e.exercise || "Lift"); meta = `<span class="mono">${e.sets}×${e.reps}${e.weight ? ` @ ${e.weight} ${e.unit}` : ""}</span>`; }
+    if (e.src === "apple-health") meta += " · Apple Health";
     if (e.note) meta += ` · ${esc(e.note)}`;
     return itemRow("var(--lift)", what, meta, "entries", e.id);
   }).join("") : `<li class="empty">No training logged. Pick Weights, Run, or Sport and add your first one.</li>`;
@@ -482,7 +519,8 @@ function renderWorkout(dayWord){
   const d = parseYmd(S.day), mon = addDays(S.day, -((d.getDay()+6)%7));
   let days = 0, mins = 0;
   for (let i=0;i<7;i++){ const st = dayStats(addDays(mon,i)); if (st.wkN) days++; mins += st.wkMin; }
-  $("#wkWeek").textContent = `This week: ${days} training day${days===1?"":"s"}, ${fmtMin(mins)} total.`;
+  const stp = dayStats(S.day).steps;
+  $("#wkWeek").textContent = `${stp ? `${stp.toLocaleString()} steps this day (Apple Health). ` : ""}This week: ${days} training day${days===1?"":"s"}, ${fmtMin(mins)} total.`;
 }
 
 function renderDiet(dayWord, s){
@@ -507,7 +545,7 @@ function renderSleep(){
   const list = S.entries.filter(e=>e.kind==="sleep").sort((a,b)=>b.date.localeCompare(a.date)).slice(0,10);
   $("#slList").innerHTML = list.length ? list.map(e => itemRow("var(--sleep)",
     `<span class="mono">${num(e.hours).toFixed(1)} h</span> <span class="muted">· ${parseYmd(e.date).toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric"})}</span>`,
-    `${esc(e.bed)} → ${esc(e.wake)} · quality ${e.quality}/5${e.note ? ` · ${esc(e.note)}` : ""}`, "entries", e.id)).join("")
+    `${esc(e.bed)} → ${esc(e.wake)}${e.quality ? ` · quality ${e.quality}/5` : ""}${e.src === "apple-health" ? " · Apple Health" : ""}${e.note ? ` · ${esc(e.note)}` : ""}`, "entries", e.id)).join("")
     : `<li class="empty">No nights logged. Enter when you went to bed and woke up.</li>`;
 }
 
@@ -698,6 +736,131 @@ $("#glForm").onsubmit = e => { e.preventDefault();
   saveGoals({ workoutMin:num($("#glWk").value)||DEFAULT_GOALS.workoutMin, kcal:num($("#glKcal").value)||DEFAULT_GOALS.kcal,
     protein:num($("#glP").value)||DEFAULT_GOALS.protein, sleepH:num($("#glSl").value)||DEFAULT_GOALS.sleepH, studyMin:num($("#glSt").value)||DEFAULT_GOALS.studyMin });
   toast("Goals saved");
+};
+
+/* ---------- Apple Health import (export.zip / export.xml, read on device) ---------- */
+function ahDate(s){
+  const m = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2}) ([+-]\d{2})(\d{2})$/.exec(s || "");
+  return m ? new Date(`${m[1]}T${m[2]}${m[3]}:${m[4]}`) : new Date(s);
+}
+const attrs = line => { const o = {}; line.replace(/(\w+)="([^"]*)"/g, (_, k, v) => { o[k] = v; }); return o; };
+async function exportStream(file){
+  if (/\.xml$/i.test(file.name)) return file.stream();
+  // read the zip's central directory and stream only export.xml through the browser's own inflater
+  const tailLen = Math.min(file.size, 65536 + 22 + 20);
+  const tail = new DataView(await file.slice(file.size - tailLen).arrayBuffer());
+  let eocd = -1; for (let i = tail.byteLength - 22; i >= 0; i--) if (tail.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error("notzip");
+  let cdSize = tail.getUint32(eocd + 12, true), cdOff = tail.getUint32(eocd + 16, true);
+  if (cdOff === 0xffffffff || cdSize === 0xffffffff) {
+    const loc = eocd - 20; if (loc < 0 || tail.getUint32(loc, true) !== 0x07064b50) throw new Error("notzip");
+    const recOff = Number(tail.getBigUint64(loc + 8, true));
+    const rec = new DataView(await file.slice(recOff, recOff + 56).arrayBuffer());
+    cdSize = Number(rec.getBigUint64(40, true)); cdOff = Number(rec.getBigUint64(48, true));
+  }
+  const cd = new DataView(await file.slice(cdOff, cdOff + cdSize).arrayBuffer()), dec = new TextDecoder();
+  for (let p = 0; p + 46 <= cd.byteLength && cd.getUint32(p, true) === 0x02014b50;) {
+    const method = cd.getUint16(p + 10, true); let comp = cd.getUint32(p + 20, true), unc = cd.getUint32(p + 24, true), off = cd.getUint32(p + 42, true);
+    const nl = cd.getUint16(p + 28, true), xl = cd.getUint16(p + 30, true), cl = cd.getUint16(p + 32, true);
+    const name = dec.decode(new Uint8Array(cd.buffer, cd.byteOffset + p + 46, nl));
+    for (let q = p + 46 + nl, xe = q + xl; q + 4 <= xe; ) { const id = cd.getUint16(q, true), sz = cd.getUint16(q + 2, true);
+      if (id === 1) { let r = q + 4;
+        if (unc === 0xffffffff) { unc = Number(cd.getBigUint64(r, true)); r += 8; }
+        if (comp === 0xffffffff) { comp = Number(cd.getBigUint64(r, true)); r += 8; }
+        if (off === 0xffffffff) { off = Number(cd.getBigUint64(r, true)); } }
+      q += 4 + sz; }
+    if (/(^|\/)export\.xml$/.test(name)) {
+      const lh = new DataView(await file.slice(off, off + 30).arrayBuffer());
+      const start = off + 30 + lh.getUint16(26, true) + lh.getUint16(28, true);
+      const raw = file.slice(start, start + comp).stream();
+      if (method === 0) return raw;
+      if (method !== 8 || typeof DecompressionStream === "undefined") throw new Error("inflate");
+      return raw.pipeThrough(new DecompressionStream("deflate-raw"));
+    }
+    p += 46 + nl + xl + cl;
+  }
+  throw new Error("noexport");
+}
+async function parseHealth(stream, since, want, onProg){
+  const sleep = [], workouts = [], steps = new Map(); let cur = null, chars = 0, lastT = 0;
+  const finish = () => { const a = cur; cur = null; const s = ahDate(a.startDate), e = ahDate(a.endDate); if (!(s >= since)) return;
+    const u = a.durationUnit || "min", d = num(a.duration);
+    const minutes = d ? (u === "hr" ? d * 60 : u === "s" ? d / 60 : d) : (e - s) / 60000;
+    const ds = a.stats["HKQuantityTypeIdentifierDistanceWalkingRunning"] || a.stats["HKQuantityTypeIdentifierDistanceCycling"] || a.stats["HKQuantityTypeIdentifierDistanceSwimming"];
+    let km = ds ? num(ds.sum) : num(a.totalDistance); const unit = ds ? ds.unit : a.totalDistanceUnit;
+    if (unit === "mi") km *= 1.609344; else if (unit === "m") km /= 1000;
+    const en = a.stats["HKQuantityTypeIdentifierActiveEnergyBurned"]; const kcal = en ? num(en.sum) : num(a.totalEnergyBurned);
+    workouts.push({ start: s, minutes, km, kcal, type: (a.workoutActivityType || "").replace("HKWorkoutActivityType", "") });
+  };
+  const handle = line => {
+    const t = line.trimStart();
+    if (t.startsWith("<Record ")) {
+      if (want.sleep && t.includes("HKCategoryTypeIdentifierSleepAnalysis")) { const a = attrs(t), s = ahDate(a.startDate), e = ahDate(a.endDate);
+        if (e >= since) sleep.push({ s: +s, e: +e, asleep: /Asleep/.test(a.value || "") }); }
+      else if (want.steps && t.includes('"HKQuantityTypeIdentifierStepCount"')) { const a = attrs(t), s = ahDate(a.startDate); if (!(s >= since)) return;
+        const d = ymd(s); if (!steps.has(d)) steps.set(d, new Map()); const m = steps.get(d); m.set(a.sourceName, (m.get(a.sourceName) || 0) + num(a.value)); }
+    } else if (want.wk && t.startsWith("<Workout ")) { cur = attrs(t); cur.stats = {}; if (t.endsWith("/>")) finish(); }
+    else if (cur && t.startsWith("<WorkoutStatistics ")) { const a = attrs(t); cur.stats[a.type] = a; }
+    else if (cur && t.startsWith("</Workout>")) finish();
+  };
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader(); let buf = "";
+  for (;;) { const { done, value } = await reader.read(); if (done) break;
+    buf += value; chars += value.length; const lines = buf.split("\n"); buf = lines.pop(); lines.forEach(handle);
+    const now = Date.now(); if (now - lastT > 400) { lastT = now; onProg(`Reading… ${(chars / 1048576).toFixed(0)} MB`); await new Promise(r => setTimeout(r)); } }
+  if (buf) handle(buf);
+  return { sleep, workouts, steps };
+}
+function healthEntries({ sleep, workouts, steps }){
+  const out = [];
+  // sleep: group by the morning you woke up (sessions ending after 18:00 count toward the next day), merge overlapping watch + phone samples
+  const nights = new Map();
+  for (const x of sleep) { const e = new Date(x.e); const key = e.getHours() >= 18 ? addDays(ymd(e), 1) : ymd(e); if (!nights.has(key)) nights.set(key, []); nights.get(key).push(x); }
+  for (const [day, segs] of nights) {
+    const asleep = segs.filter(x => x.asleep), use = (asleep.length ? asleep : segs).slice().sort((a, b) => a.s - b.s);
+    let total = 0, cs = -1, ce = -1; for (const x of use) { if (x.s > ce) { if (ce > cs) total += ce - cs; cs = x.s; ce = x.e; } else ce = Math.max(ce, x.e); } if (ce > cs) total += ce - cs;
+    const hours = total / 3600000; if (hours < 0.5) continue;
+    const bed = new Date(Math.min(...use.map(x => x.s))), wake = new Date(Math.max(...use.map(x => x.e)));
+    out.push({ id: `ah-sleep-${day}`, kind: "sleep", date: day, ts: +wake, bed: `${pad(bed.getHours())}:${pad(bed.getMinutes())}`, wake: `${pad(wake.getHours())}:${pad(wake.getMinutes())}`,
+      hours: +hours.toFixed(2), quality: null, note: "", src: "apple-health" });
+  }
+  for (const w of workouts) {
+    const name = w.type.replace(/([a-z])([A-Z])/g, "$1 $2") || "Workout", base = { id: `ah-wk-${+w.start}`, kind: "workout", date: ymd(w.start), ts: +w.start, minutes: +w.minutes.toFixed(1), note: w.kcal ? `${Math.round(w.kcal)} kcal` : "", src: "apple-health" };
+    if (w.type === "Running") out.push({ ...base, type: "run", km: +w.km.toFixed(2), runKind: "" });
+    else if (/StrengthTraining/.test(w.type)) out.push({ ...base, type: "weights", exercise: name });
+    else out.push({ ...base, type: "sport", sport: name, intensity: w.km ? `${w.km.toFixed(2)} km` : "" });
+  }
+  // steps: phone and watch both count steps, so take the larger source per day instead of adding them
+  for (const [day, m] of steps) out.push({ id: `ah-steps-${day}`, kind: "steps", date: day, ts: +parseYmd(day) + 43200000, steps: Math.round(Math.max(...m.values())), src: "apple-health" });
+  return out;
+}
+try { const l = localStorage.getItem("daybook.ahLast"); if (l) $("#ahLast").textContent = l; } catch {}
+$("#ahForm").onsubmit = async e => { e.preventDefault();
+  const file = $("#ahFile").files[0], prog = $("#ahProg"), btn = $("#ahGo");
+  if (!file) return toast("Pick your export.zip first.");
+  const want = { sleep: $("#ahSleep").checked, wk: $("#ahWk").checked, steps: $("#ahSteps").checked };
+  const since = parseYmd(addDays(ymd(new Date()), -num($("#ahRange").value)));
+  btn.disabled = true; prog.textContent = "Opening file…";
+  try {
+    const parsed = await parseHealth(await exportStream(file), since, want, t => prog.textContent = t);
+    const all = healthEntries(parsed), byId = new Map(S.entries.map(x => [x.id, x]));
+    const manualSleep = new Set(S.entries.filter(x => x.kind === "sleep" && x.src !== "apple-health").map(x => x.date));
+    const same = (a, b) => { if (!b) return false; const { id: _a, ...x } = a, { id: _b, ...y } = b; return Object.keys(x).every(k => JSON.stringify(x[k]) === JSON.stringify(y[k])); };
+    const todo = all.filter(x => !(x.kind === "sleep" && manualSleep.has(x.date)) && !same(x, byId.get(x.id)));
+    let done = 0, failed = 0;
+    for (let i = 0; i < todo.length; i += 4) {
+      const res = await Promise.all(todo.slice(i, i + 4).map(x => put("entries", x)));
+      res.forEach(ok => ok ? done++ : failed++); prog.textContent = `Saving… ${done + failed} of ${todo.length}`;
+    }
+    const count = k => all.filter(x => x.kind === k).length;
+    const msg = `Last import ${new Date().toLocaleString()}: ${count("sleep")} nights, ${count("workout")} workouts, ${count("steps")} days of steps found. ${done} saved or updated${failed ? `, ${failed} failed` : ""}.`;
+    prog.textContent = all.length ? msg : "No sleep, workouts or steps found in that date range. Check the file is export.zip from the Health app.";
+    if (all.length) { $("#ahLast").textContent = ""; try { localStorage.setItem("daybook.ahLast", msg); } catch {} }
+  } catch (err) {
+    prog.textContent = err?.message === "noexport" ? "That zip doesn't contain export.xml. Pick the export.zip made by the Health app."
+      : err?.message === "notzip" ? "That file isn't a zip. Pick export.zip, or export.xml from inside it."
+      : err?.message === "inflate" ? "This browser can't unzip the file. Unzip it in the Files app, then pick export.xml."
+      : "The file couldn't be read. Try exporting again from the Health app.";
+  } finally { btn.disabled = false; }
 };
 
 // roll over to the new day at midnight if the page stays open
