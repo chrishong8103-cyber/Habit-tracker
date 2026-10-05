@@ -174,17 +174,11 @@ dialog img{border-radius:8px;max-height:260px;object-fit:contain;background:var(
 
   <!-- input deck -->
   <section class="panel" id="deckPanel" hidden>
-    <div class="panel-h">
-      <h2>Add with slides</h2>
-      <div class="dots" id="dots"></div>
-    </div>
-    <p class="note" style="margin:0">One slide per thing. Add a photo (timetable, flyer, screenshot, notes) and describe it if you want, or just write. Korean or English both work. Swipe or tap the numbers to move between slides.</p>
+    <h2>Add to your planner</h2>
+    <p class="note" style="margin:0">Add a photo (timetable, flyer, screenshot, notes) and describe it if you want, or just write. Korean or English both work.</p>
     <div class="deck" id="deck"></div>
     <div class="row" style="align-items:center">
-      <button class="btn ghost small" id="addSlide" type="button" style="flex:0 0 auto">+ Slide</button>
-      <button class="btn ghost small" id="delSlide" type="button" style="flex:0 0 auto">Remove this slide</button>
-      <span style="flex:1 1 20px"></span>
-      <button class="btn" id="readBtn" type="button" style="flex:0 0 auto">Read slides with Claude</button>
+      <button class="btn" id="readBtn" type="button" style="flex:0 0 auto">Read with Claude</button>
     </div>
     <div class="note" id="readNote">You'll check every entry before it's saved.</div>
     <div class="proposal" id="proposal" hidden></div>
@@ -365,7 +359,7 @@ function renderGrid(today){
       return `<button class="ev${point?" point":""}" data-id="${o.ev.id}" style="--c:var(--${c.color});top:calc(var(--hh)*${top});height:calc(var(--hh)*${h} - 2px);left:calc(${left}% + 2px);width:calc(${w}% - 4px)">
         <b>${esc(o.ev.title)}</b>${h >= 0.7 || point ? `<span class="t">${time}${sub && h >= 1 ? ` · ${esc(sub)}` : ""}</span>` : ""}</button>`;
     }).join("") + (d === today ? `<div class="nowline" style="top:calc(var(--hh)*${nowM/60})"></div>` : "") + `</div>`).join("");
-  const empty = !S.events.length && S.mode !== "loading" ? `<div class="emptycal"><div><b style="color:var(--ink)">Nothing planned yet.</b><br>Classes, workouts and downtime will show up here. Press <b>+ Add</b> to fill in slides with photos or text, or send your schedule to Claude in chat.</div></div>` : "";
+  const empty = !S.events.length && S.mode !== "loading" ? `<div class="emptycal"><div><b style="color:var(--ink)">Nothing planned yet.</b><br>Classes, workouts and downtime will show up here. Press <b>+ Add</b> to add a photo or text, or send your schedule to Claude in chat.</div></div>` : "";
   const keep = $(".scroller")?.scrollTop;
   $("#cal").innerHTML = `<div class="heads" style="--n:${days.length}">${heads}</div><div class="scroller"><div class="grid" style="--n:${days.length}">${hours}${cols}${empty}</div></div>`;
   const sc = $(".scroller");
@@ -458,26 +452,20 @@ $("#addBtn").onclick = () => { const p = $("#deckPanel"); if (p.hidden) { openPa
 function renderDeck(){
   $("#deck").innerHTML = S.slides.map((s, i) => `<div class="slide" data-i="${i}">
     <div class="drop${s.img ? " has" : ""}">
-      ${s.img ? `<img src="${s.img.url}" alt="Photo on slide ${i+1}"><button class="rm" type="button" data-rmimg="${i}">Remove photo</button>`
-        : `<div class="hint"><b>Add a photo</b><span class="note">Tap to choose, or paste an image</span></div><input type="file" accept="image/*" data-file="${i}" aria-label="Photo for slide ${i+1}">`}
+      ${s.img ? `<img src="${s.img.url}" alt="Your photo"><button class="rm" type="button" data-rmimg="${i}">Remove photo</button>`
+        : `<div class="hint"><b>Add a photo</b><span class="note">Tap to choose, or paste an image</span></div><input type="file" accept="image/*" data-file="${i}" aria-label="Photo">`}
     </div>
-    <textarea data-text="${i}" placeholder="${s.img ? "Describe the photo if it helps (optional).\n예: 이번 학기 시간표, 화목은 7시 반 시작" : "Write it down.\n예: 월수금 6시 헬스 (하체/상체), 토요일 아침 5km 러닝, 금요일 밤 넷플릭스"}" aria-label="Text for slide ${i+1}">${esc(s.text)}</textarea>
+    <textarea data-text="${i}" placeholder="${s.img ? "Describe the photo if it helps (optional).\n예: 이번 학기 시간표, 화목은 7시 반 시작" : "Write it down.\n예: 월수금 6시 헬스 (하체/상체), 토요일 아침 5km 러닝, 금요일 밤 넷플릭스"}" aria-label="Text">${esc(s.text)}</textarea>
   </div>`).join("");
   renderDots(); goSlide(S.cur, false);
 }
-function renderDots(){
-  $("#dots").innerHTML = S.slides.map((s, i) => `<button class="dot${s.img || s.text.trim() ? " filled" : ""}" data-go="${i}" aria-current="${i === S.cur}" aria-label="Slide ${i+1}">${i+1}</button>`).join("");
-  $("#delSlide").hidden = S.slides.length < 2;
-}
+function renderDots(){}
 function goSlide(i, smooth = true){
   S.cur = Math.max(0, Math.min(S.slides.length - 1, i)); const d = $("#deck");
   d.scrollTo({ left: S.cur * (d.clientWidth + 12), behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
   $$("#dots .dot").forEach((b, j) => b.setAttribute("aria-current", String(j === S.cur)));
 }
 let scrollT; $("#deck").addEventListener("scroll", () => { clearTimeout(scrollT); scrollT = setTimeout(() => { const d = $("#deck"); const i = Math.round(d.scrollLeft / (d.clientWidth + 12)); if (i !== S.cur) { S.cur = i; $$("#dots .dot").forEach((b, j) => b.setAttribute("aria-current", String(j === S.cur))); } }, 80); });
-$("#dots").onclick = e => { const b = e.target.closest("[data-go]"); if (b) goSlide(+b.dataset.go); };
-$("#addSlide").onclick = () => { S.slides.push({ text:"", img:null }); S.cur = S.slides.length - 1; renderDeck(); };
-$("#delSlide").onclick = () => { if (S.slides.length < 2) return; S.slides.splice(S.cur, 1); S.cur = Math.min(S.cur, S.slides.length - 1); renderDeck(); };
 $("#deck").addEventListener("input", e => { const t = e.target.closest("[data-text]"); if (t) { S.slides[+t.dataset.text].text = t.value; renderDots(); } });
 $("#deck").addEventListener("change", async e => { const f = e.target.closest("[data-file]"); if (f && f.files[0]) setSlideImage(+f.dataset.file, f.files[0]); });
 $("#deck").addEventListener("click", e => { const r = e.target.closest("[data-rmimg]"); if (r) { S.slides[+r.dataset.rmimg].img = null; renderDeck(); } });
@@ -501,7 +489,7 @@ async function setSlideImage(i, file){
 /* ---------- Claude reads the slides ---------- */
 let sample = null;
 (async () => { const c = window.claude; sample = c ? await c.use("sample").catch(() => null) : null;
-  if (!sample) { $("#readBtn").disabled = true; $("#readNote").textContent = "Open this page in Claude to read slides. You can still add entries by hand below."; } })();
+  if (!sample) { $("#readBtn").disabled = true; $("#readNote").textContent = "Open this page in Claude to read photos and text. You can still add entries by hand below."; } })();
 function clean(ev){
   const ok = t => typeof t === "string" && /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5,"0") : null;
   const c = S.cats.find(x => x.id === ev.cat);
@@ -517,12 +505,12 @@ function clean(ev){
 }
 $("#readBtn").onclick = async () => {
   const used = S.slides.map((s, i) => ({ ...s, n: i + 1 })).filter(s => s.img || s.text.trim());
-  if (!used.length) return toast("Add a photo or some text to a slide first.");
+  if (!used.length) return toast("Add a photo or some text first.");
   const lim = await sample.limits().catch(() => null), maxImg = lim?.images?.maxCount ?? 0;
   const withImg = used.filter(s => s.img);
   if (withImg.length && !maxImg) return toast("Photos can't be read in this view. Describe them in text instead.");
-  if (withImg.length > maxImg) return toast(`Claude can read up to ${maxImg} photos at once. Remove some slides and try again.`);
-  const box = $("#proposal"), btn = $("#readBtn"); btn.disabled = true; box.hidden = false; box.textContent = "Reading your slides… this can take up to a minute with photos.";
+  if (withImg.length > maxImg) return toast(`Claude can read up to ${maxImg} photos at once. Try a smaller photo set.`);
+  const box = $("#proposal"), btn = $("#readBtn"); btn.disabled = true; box.hidden = false; box.textContent = "Reading… this can take up to a minute with a photo.";
   const today = new Date();
   const catText = S.cats.map(c => `- ${c.id} (${c.name}${c.kr ? ", " + c.kr : ""}): types ${c.subs.length ? c.subs.map(s => `${s.id} (${s.name})`).join(", ") : "none"}`).join("\n");
   const existing = S.events.slice(0,200).map(ev => `${ev.id} | ${ev.title} | ${ev.cat}/${ev.sub||"-"} | ${describe(ev)}`).join("\n") || "(none)";
@@ -560,9 +548,9 @@ Reply with only JSON:
         return `<li><label><input type="checkbox" checked data-padd="${i}"><i class="sw" style="--c:var(--${c.color})"></i><span><b>${esc(ev.title)}</b> · ${esc(c.name)}${sub ? ` / ${esc(sub)}` : ""} · ${esc(describe(ev))}${ev.note ? `<br><span class="note">${esc(ev.note)}</span>` : ""}</span></label></li>`; }).join("") +
       `</ul><div class="row"><button class="btn" type="button" id="apply" style="flex:0 0 auto">Save checked entries</button><button class="btn ghost" type="button" id="discard" style="flex:0 0 auto">Discard</button></div>`;
   } catch (e) {
-    box.textContent = e?.code === "not_granted" ? "Reading slides with Claude is turned off for this page. Use the form below to add entries by hand."
+    box.textContent = e?.code === "not_granted" ? "Reading with Claude is turned off for this page. Use the form below to add entries by hand."
       : e?.code === "rate_limited" ? "Too many requests right now. Wait a minute and try again."
-      : "Claude couldn't read those slides. Try adding a line of text like 월수금 19:00–21:00 수학 공부.";
+      : "Claude couldn't read that. Try adding a line of text like 월수금 19:00–21:00 수학 공부.";
   } finally { btn.disabled = !sample; }
 };
 $("#proposal").addEventListener("click", async e => {
