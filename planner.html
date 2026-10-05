@@ -1,0 +1,639 @@
+<title>Life Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=IBM+Plex+Sans+KR:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a timetable. Toolbar, category filter chips, an input deck of swipeable photo/text slides, then a day / week / month grid. */
+:root{
+  --bg:#f3f5f9; --surface:#ffffff; --sunk:#e7ebf2; --line:#d5dbe5; --hour:#e6eaf1;
+  --ink:#171a23; --muted:#5b6475; --accent:#2b4fc7; --on-accent:#ffffff; --now:#d23a2f;
+  --c1:#2f5fd0; --c2:#cf4f22; --c3:#8a40c2; --c4:#12877a; --c5:#b0761a; --c6:#c43a78; --c7:#6b7480;
+  --f-display:"Unbounded","IBM Plex Sans KR",ui-sans-serif,system-ui,sans-serif;
+  --f-body:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",ui-sans-serif,system-ui,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --hh:46px; --r:12px;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0f1218; --surface:#171b23; --sunk:#1f2530; --line:#2b3340; --hour:#222a35;
+  --ink:#e6e9f0; --muted:#97a0b2; --accent:#86a2f5; --on-accent:#0d1122; --now:#ff6d63;
+  --c1:#7398f3; --c2:#f08559; --c3:#c08af0; --c4:#4cc4b5; --c5:#e5ac4a; --c6:#ef7fb0; --c7:#9aa3b0;
+  color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1218; --surface:#171b23; --sunk:#1f2530; --line:#2b3340; --hour:#222a35;
+  --ink:#e6e9f0; --muted:#97a0b2; --accent:#86a2f5; --on-accent:#0d1122; --now:#ff6d63;
+  --c1:#7398f3; --c2:#f08559; --c3:#c08af0; --c4:#4cc4b5; --c5:#e5ac4a; --c6:#ef7fb0; --c7:#9aa3b0;
+  color-scheme:dark}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;word-break:keep-all}
+.wrap{max-width:1060px;margin:0 auto;padding-inline:16px;padding-block:20px 56px;display:grid;gap:14px}
+h1,h2,h3{font-family:var(--f-display);margin:0;letter-spacing:-.01em;text-wrap:balance;line-height:1.15}
+h1{font-size:1.5rem;font-weight:700}
+h2{font-size:1rem;font-weight:700}
+h3{font-size:.9rem;font-weight:500}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.note{font-size:.84rem;color:var(--muted)}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+.top{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:end;justify-content:space-between}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.iconbtn{border:1px solid var(--line);background:var(--surface);border-radius:8px;min-width:34px;height:34px;padding:0 10px;cursor:pointer}
+.iconbtn:hover{border-color:var(--muted)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.seg button{border:0;background:none;padding:6px 12px;cursor:pointer;font-weight:600;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--ink);color:var(--bg)}
+.btn{border:0;border-radius:8px;padding:8px 14px;font-weight:600;cursor:pointer;background:var(--accent);color:var(--on-accent)}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.danger{background:transparent;color:var(--now);border:1px solid var(--line)}
+.btn.small{padding:5px 10px;font-size:.84rem}
+.btn:disabled{opacity:.5;cursor:default}
+.range{font-weight:600;min-width:11ch}
+
+/* filter chips */
+.filters{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fchip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:4px 12px 4px 8px;cursor:pointer;font-size:.85rem}
+.fchip[aria-pressed="false"]{opacity:.45}
+.fchip[aria-pressed="false"] .sw{background:transparent;border:2px solid var(--c)}
+.sw{width:11px;height:11px;border-radius:3px;background:var(--c);flex:none;display:inline-block}
+.linkbtn{background:none;border:0;color:var(--muted);text-decoration:underline;cursor:pointer;font-size:.84rem;padding:2px}
+.status{font-size:.82rem;color:var(--muted)}
+
+/* input deck */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:16px;display:grid;gap:12px;min-width:0}
+.panel-h{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.deck{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:12px;scrollbar-width:none;border-radius:10px}
+.deck::-webkit-scrollbar{display:none}
+.slide{flex:0 0 100%;scroll-snap-align:start;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px;min-width:0}
+@media (max-width:640px){.slide{grid-template-columns:minmax(0,1fr)}}
+.drop{position:relative;border:2px dashed var(--line);border-radius:10px;background:var(--bg);min-height:200px;display:grid;place-items:center;text-align:center;padding:12px;cursor:pointer;overflow:hidden}
+.drop.has{border-style:solid;padding:0;background:var(--sunk)}
+.drop img{width:100%;height:100%;max-height:320px;object-fit:contain;display:block}
+.drop input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.drop .rm{position:absolute;top:8px;right:8px;z-index:2;border:0;border-radius:6px;background:var(--ink);color:var(--bg);padding:3px 8px;cursor:pointer;font-size:.8rem}
+.drop .hint b{display:block;font-family:var(--f-display);font-weight:500;font-size:.95rem;margin-bottom:2px}
+.slide textarea{width:100%;min-height:200px;resize:vertical;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.dots{display:flex;gap:6px;align-items:center}
+.dot{width:26px;height:26px;border-radius:7px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-family:var(--f-mono);font-size:.75rem;display:grid;place-items:center}
+.dot[aria-current="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.dot.filled{box-shadow:inset 0 -3px 0 var(--accent)}
+.proposal{border:1px dashed var(--line);border-radius:10px;padding:12px;display:grid;gap:8px;background:var(--bg)}
+.proposal ul{margin:0;padding:0;list-style:none;display:grid;gap:6px}
+.proposal li{display:flex;gap:8px;align-items:flex-start;font-size:.88rem;min-width:0}
+.proposal li label{display:flex;gap:8px;align-items:flex-start;cursor:pointer;min-width:0}
+.proposal li input{width:auto;margin-top:4px}
+.proposal li.rm span{text-decoration:line-through;color:var(--muted)}
+.proposal .sw{margin-top:5px}
+details.manual summary{cursor:pointer;font-weight:600;font-size:.9rem}
+form{display:grid;gap:10px}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.row>*{flex:1 1 120px;min-width:0}
+.field{display:grid;gap:3px;min-width:0}
+.field>span{font-size:.78rem;color:var(--muted);font-weight:600}
+input,select,textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px;min-width:0}
+.days{display:flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.days button{flex:1;border:0;background:var(--surface);padding:7px 0;cursor:pointer;font-weight:600;color:var(--muted);min-width:0}
+.days button[aria-pressed="true"]{background:var(--accent);color:var(--on-accent)}
+
+/* categories editor */
+.catrow{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:start;padding:10px 0;border-top:1px solid var(--line)}
+.catrow:first-child{border-top:0}
+.swatches{display:flex;gap:4px;flex-wrap:wrap;max-width:92px}
+.swatches button{width:18px;height:18px;border-radius:5px;border:2px solid transparent;background:var(--c);cursor:pointer;padding:0}
+.swatches button[aria-pressed="true"]{border-color:var(--ink)}
+.subs{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.sub{display:inline-flex;gap:4px;align-items:center;border:1px solid var(--line);border-radius:999px;padding:2px 4px 2px 10px;font-size:.84rem}
+.sub button{border:0;background:none;color:var(--muted);cursor:pointer;padding:0 4px}
+.subs input{width:150px;flex:0 0 auto;padding:4px 8px}
+
+/* time grid */
+.cal{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);overflow:hidden}
+.heads{display:grid;grid-template-columns:52px repeat(var(--n),minmax(0,1fr));border-bottom:1px solid var(--line)}
+.heads div{padding:8px 4px;text-align:center;font-size:.8rem;min-width:0}
+.heads .dnum{font-family:var(--f-display);font-size:1.05rem;font-weight:500;display:block;line-height:1.3}
+.heads .today .dnum{color:var(--accent)}
+.heads .kr{color:var(--muted);font-size:.72rem}
+.scroller{max-height:min(68vh,720px);overflow-y:auto;position:relative}
+.grid{display:grid;grid-template-columns:52px repeat(var(--n),minmax(0,1fr));position:relative;height:calc(var(--hh)*24)}
+.hours{position:relative}
+.hours span{position:absolute;right:8px;transform:translateY(-50%);font-family:var(--f-mono);font-size:.7rem;color:var(--muted)}
+.col{position:relative;border-left:1px solid var(--line);background:repeating-linear-gradient(to bottom,transparent 0,transparent calc(var(--hh) - 1px),var(--hour) calc(var(--hh) - 1px),var(--hour) var(--hh))}
+.col.today{background-color:color-mix(in srgb,var(--accent) 5%,transparent)}
+.ev{position:absolute;border-radius:6px;padding:2px 5px;overflow:hidden;cursor:pointer;border:0;text-align:left;display:flex;flex-direction:column;justify-content:flex-start;
+  background:color-mix(in srgb,var(--c) 18%,var(--surface));border-left:3px solid var(--c);color:var(--ink);font-size:.76rem;line-height:1.25}
+.ev:hover{background:color-mix(in srgb,var(--c) 28%,var(--surface))}
+.ev b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ev .t{font-family:var(--f-mono);font-size:.68rem;color:var(--muted)}
+.ev.point{border-left:0;border-top:2px solid var(--c);border-radius:0 0 6px 6px;background:color-mix(in srgb,var(--c) 12%,var(--surface))}
+.nowline{position:absolute;left:0;right:0;height:2px;background:var(--now);z-index:3;pointer-events:none}
+.nowline::before{content:"";position:absolute;left:-4px;top:-3px;width:8px;height:8px;border-radius:50%;background:var(--now)}
+.emptycal{position:absolute;left:52px;right:0;top:calc(var(--hh)*8);display:grid;place-items:center;pointer-events:none;padding:16px}
+.emptycal div{background:var(--surface);border:1px dashed var(--line);border-radius:var(--r);padding:14px 18px;max-width:44ch;text-align:center;color:var(--muted);font-size:.9rem}
+
+/* month */
+.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.month .mh{padding:8px 4px;text-align:center;font-size:.76rem;color:var(--muted);border-bottom:1px solid var(--line)}
+.mc{min-height:96px;border:0;border-top:1px solid var(--line);border-left:1px solid var(--line);padding:4px;display:grid;gap:2px;align-content:start;cursor:pointer;min-width:0;background:none;text-align:left}
+.mc:nth-child(7n+1){border-left:0}
+.mc.out{color:var(--muted);background:var(--sunk)}
+.mc .n{font-family:var(--f-display);font-weight:500;font-size:.85rem}
+.mc.today .n{color:var(--on-accent);background:var(--accent);border-radius:999px;padding:0 7px;justify-self:start}
+.mi{font-size:.7rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;border-left:3px solid var(--c);padding-left:3px}
+@media (max-width:600px){.mc{min-height:64px}.mi{font-size:.6rem}}
+
+dialog{border:1px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:18px;width:min(480px,calc(100vw - 32px))}
+dialog::backdrop{background:rgb(0 0 0 / .4)}
+dialog img{border-radius:8px;max-height:260px;object-fit:contain;background:var(--sunk);width:100%}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--ink);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:.88rem;z-index:10}
+@media (prefers-reduced-motion:reduce){.deck{scroll-behavior:auto}}
+</style>
+
+<div class="wrap">
+  <header class="top">
+    <div>
+      <div class="note" id="todayLabel"></div>
+      <h1>Life Planner</h1>
+    </div>
+    <div class="toolbar">
+      <button class="iconbtn" id="prev" aria-label="Previous">‹</button>
+      <span class="range mono" id="range"></span>
+      <button class="iconbtn" id="next" aria-label="Next">›</button>
+      <button class="iconbtn" id="todayBtn">Today</button>
+      <div class="seg" id="views">
+        <button data-v="day" aria-pressed="false">Day</button>
+        <button data-v="week" aria-pressed="true">Week</button>
+        <button data-v="month" aria-pressed="false">Month</button>
+      </div>
+      <button class="btn" id="addBtn">+ Add</button>
+    </div>
+  </header>
+
+  <div class="filters" id="filters"></div>
+  <div class="status" id="status">Loading your planner…</div>
+
+  <!-- input deck -->
+  <section class="panel" id="deckPanel" hidden>
+    <div class="panel-h">
+      <h2>Add with slides</h2>
+      <div class="dots" id="dots"></div>
+    </div>
+    <p class="note" style="margin:0">One slide per thing. Add a photo (timetable, flyer, screenshot, notes) and describe it if you want, or just write. Korean or English both work. Swipe or tap the numbers to move between slides.</p>
+    <div class="deck" id="deck"></div>
+    <div class="row" style="align-items:center">
+      <button class="btn ghost small" id="addSlide" type="button" style="flex:0 0 auto">+ Slide</button>
+      <button class="btn ghost small" id="delSlide" type="button" style="flex:0 0 auto">Remove this slide</button>
+      <span style="flex:1 1 20px"></span>
+      <button class="btn" id="readBtn" type="button" style="flex:0 0 auto">Read slides with Claude</button>
+    </div>
+    <div class="note" id="readNote">You'll check every entry before it's saved.</div>
+    <div class="proposal" id="proposal" hidden></div>
+
+    <details class="manual" id="manual">
+      <summary id="manualSum">Or add one entry by hand</summary>
+      <form id="mForm" style="margin-top:10px">
+        <label class="field"><span>Title</span><input id="mTitle" placeholder="수학 학원 / Leg day / 넷플릭스"></label>
+        <div class="row">
+          <label class="field"><span>Category</span><select id="mCat"></select></label>
+          <label class="field"><span>Type</span><select id="mSub"></select></label>
+          <label class="field"><span>Repeats</span><select id="mKind"><option value="once">Once</option><option value="weekly">Weekly</option><option value="daily">Every day</option></select></label>
+        </div>
+        <div class="row">
+          <label class="field" id="mDateWrap"><span>Date</span><input id="mDate" type="date"></label>
+          <label class="field"><span>Start</span><input id="mStart" type="time" value="19:00"></label>
+          <label class="field"><span>End (blank = a moment)</span><input id="mEnd" type="time" value="20:00"></label>
+        </div>
+        <div class="field" id="mDaysWrap" hidden><span>On</span><div class="days" id="mDays"></div></div>
+        <label class="field"><span>Note</span><input id="mNote"></label>
+        <div class="row"><button class="btn" type="submit" id="mSave" style="flex:0 0 auto">Add entry</button>
+          <button class="btn ghost" type="button" id="mCancel" style="flex:0 0 auto" hidden>Cancel edit</button></div>
+      </form>
+    </details>
+  </section>
+
+  <!-- categories -->
+  <section class="panel" id="catPanel" hidden>
+    <div class="panel-h"><h2>Categories</h2><button class="btn ghost small" id="catClose" type="button">Done</button></div>
+    <div id="catList"></div>
+    <form id="catAdd" class="row" style="align-items:end">
+      <label class="field"><span>New category</span><input id="catName" placeholder="e.g. Work / 알바"></label>
+      <div style="flex:0 0 auto"><button class="btn small" type="submit">Add category</button></div>
+    </form>
+  </section>
+
+  <section class="cal" id="cal"></section>
+  <p class="note">You can also send your schedule to Claude in chat, and Claude will add it here.</p>
+</div>
+
+<dialog id="dlg">
+  <form method="dialog" style="display:grid;gap:10px">
+    <h2 id="dTitle"></h2>
+    <div class="note" id="dMeta"></div>
+    <img id="dImg" alt="Photo attached to this entry" hidden>
+    <div id="dNote" style="white-space:pre-wrap"></div>
+    <div class="row" style="justify-content:flex-end">
+      <button class="btn danger" type="button" id="dDel" style="flex:0 0 auto">Delete</button>
+      <button class="btn ghost" type="button" id="dEdit" style="flex:0 0 auto">Edit</button>
+      <button class="btn ghost" value="close" style="flex:0 0 auto">Close</button>
+    </div>
+  </form>
+</dialog>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(() => {
+"use strict";
+const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const P = s => { const [y,m,d] = s.split("-").map(Number); return new Date(y,m-1,d); };
+const add = (s,n) => { const d = P(s); d.setDate(d.getDate()+n); return ymd(d); };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const mins = t => { if (!t || !/^\d{1,2}:\d{2}$/.test(t)) return null; const [h,m] = t.split(":").map(Number); return h*60+m; };
+const hm = m => `${pad(Math.floor(m/60)%24)}:${pad(m%60)}`;
+const EN = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"], KR = ["일","월","화","수","목","금","토"];
+const COLORS = ["c1","c2","c3","c4","c5","c6","c7"];
+const DEFAULT_CATS = [
+  { id:"school",   name:"School",   kr:"학교", color:"c1", subs:[{id:"academic",name:"Academic"},{id:"nonacademic",name:"Non-academic"}] },
+  { id:"training", name:"Training", kr:"운동", color:"c2", subs:[{id:"lifting",name:"Lifting"},{id:"running",name:"Running"}] },
+  { id:"chill",    name:"Chill",    kr:"휴식", color:"c3", subs:[{id:"netflix",name:"Netflix"},{id:"gaming",name:"Gaming"}] },
+];
+const OTHER = { id:"other", name:"Other", kr:"기타", color:"c7", subs:[] };
+
+const S = { view: innerWidth < 600 ? "day" : "week", anchor: ymd(new Date()), events: [], cats: DEFAULT_CATS, hidden: new Set(),
+  mode: "loading", mDays: new Set(), slides: [{ text:"", img:null }], cur: 0, pending: null, editId: null, jump: true };
+try { const v = localStorage.getItem("planner.view"); if (v) S.view = v; const h = JSON.parse(localStorage.getItem("planner.hidden") || "[]"); S.hidden = new Set(h); } catch {}
+const cat = id => S.cats.find(c => c.id === id) || OTHER;
+const subName = (c, id) => c.subs.find(s => s.id === id)?.name || "";
+const colorOf = id => `var(--${cat(id).color})`;
+
+/* ---------- storage ---------- */
+let db = null;
+const LS = "planner.local.v1";
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,8);
+function saveLocal(){ try { localStorage.setItem(LS, JSON.stringify({ events:S.events, cats:S.cats })); } catch {} }
+async function put(ev){
+  const id = ev.id || uid(), body = { ...ev }; delete body.id; body.updated = Date.now();
+  if (db) { try { await db.collection("events").doc(id).set(body); return true; }
+    catch (e) { toast(e?.code === "permission_denied" ? "Only the owner can change this planner." : "Couldn't save. Check your connection and try again."); return false; } }
+  const i = S.events.findIndex(x => x.id === id); i >= 0 ? S.events[i] = { id, ...body } : S.events.push({ id, ...body });
+  saveLocal(); render(); return true;
+}
+async function del(id){
+  if (db) { try { await db.collection("events").doc(id).delete(); return true; } catch { toast("Couldn't delete that entry."); return false; } }
+  S.events = S.events.filter(x => x.id !== id); saveLocal(); render(); return true;
+}
+async function saveCats(){
+  if (db) { try { await db.doc("settings/categories").set({ list: S.cats }); } catch { toast("Couldn't save categories."); } }
+  else { saveLocal(); }
+  render(); renderCats(); fillCatSelects();
+}
+async function connect(){
+  const c = window.claude, d = c ? await c.use("db").catch(() => null) : null;
+  if (!d) { S.mode = "local"; try { const o = JSON.parse(localStorage.getItem(LS) || "{}"); S.events = o.events || []; if (o.cats?.length) S.cats = o.cats; } catch {} fillCatSelects(); render(); return; }
+  db = d; S.mode = "db";
+  db.collection("events").onSnapshot(snap => { S.events = snap.docs.map(x => ({ id: x.id, ...x.data() })); render(); },
+    () => setStatus("Lost the connection to your planner. Reload the page to reconnect."));
+  db.doc("settings/categories").onSnapshot(s => { const l = s.exists ? s.data().list : null; S.cats = Array.isArray(l) && l.length ? l : DEFAULT_CATS; fillCatSelects(); renderCats(); render(); }, () => {});
+}
+
+/* ---------- recurrence + layout ---------- */
+function onDate(ev, day){
+  if (ev.from && day < ev.from) return false;
+  if (ev.until && day > ev.until) return false;
+  if ((ev.except||[]).includes(day)) return false;
+  if (ev.kind === "daily") return true;
+  if (ev.kind === "weekly") return (ev.days||[]).includes(P(day).getDay());
+  return ev.date === day;
+}
+function occ(day){
+  const out = [], prev = add(day,-1);
+  for (const ev of S.events) {
+    if (S.hidden.has(cat(ev.cat).id)) continue;
+    const s = mins(ev.start), e = mins(ev.end);
+    if (s == null) continue;
+    const overnight = e != null && e <= s;
+    if (onDate(ev, day)) out.push({ ev, s, e: e == null ? null : overnight ? 1440 : e, cont: false });
+    if (overnight && e > 0 && onDate(ev, prev)) out.push({ ev, s: 0, e, cont: true });
+  }
+  return out.sort((a,b) => a.s - b.s || (b.e??a.s) - (a.e??a.s));
+}
+function layout(list){
+  const groups = []; let cur = [], end = -1;
+  for (const o of list) { const oe = o.e ?? o.s + 25;
+    if (o.s >= end && cur.length) { groups.push(cur); cur = []; }
+    cur.push(o); end = Math.max(end, oe); }
+  if (cur.length) groups.push(cur);
+  for (const g of groups) { const cols = [];
+    for (const o of g) { const oe = o.e ?? o.s + 25; let i = cols.findIndex(c => c <= o.s); if (i < 0) { i = cols.length; cols.push(0); } cols[i] = oe; o.col = i; }
+    g.forEach(o => o.ncol = cols.length); }
+  return list;
+}
+
+/* ---------- render ---------- */
+function setStatus(t){ $("#status").textContent = t; }
+let tt; function toast(t){ const el = $("#toast"); el.textContent = t; el.hidden = false; clearTimeout(tt); tt = setTimeout(() => el.hidden = true, 2600); }
+const weekStart = s => add(s, -((P(s).getDay()+6)%7));
+function visibleDays(){
+  if (S.view === "day") return [S.anchor];
+  const n = innerWidth < 600 ? 3 : 7, start = n === 7 ? weekStart(S.anchor) : S.anchor;
+  return Array.from({length:n}, (_,i) => add(start,i));
+}
+function render(){
+  const today = ymd(new Date()), t = new Date();
+  $("#todayLabel").textContent = `${t.toLocaleDateString("en-US",{weekday:"long",month:"long",day:"numeric"})} · ${t.getMonth()+1}월 ${t.getDate()}일 (${KR[t.getDay()]})`;
+  $$("#views button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === S.view)));
+  $("#filters").innerHTML = [...S.cats, ...(S.events.some(e => cat(e.cat) === OTHER) ? [OTHER] : [])].map(c =>
+    `<button class="fchip" data-filter="${c.id}" aria-pressed="${!S.hidden.has(c.id)}" style="--c:var(--${c.color})" title="Show or hide ${esc(c.name)}"><i class="sw"></i>${esc(c.name)}${c.kr ? ` <span class="muted">${esc(c.kr)}</span>` : ""}</button>`).join("")
+    + `<button class="linkbtn" id="catBtn" type="button">Edit categories</button>`;
+  if (S.mode === "db") setStatus(S.events.length ? `${S.events.length} entr${S.events.length===1?"y":"ies"} saved` : "");
+  else if (S.mode === "local") setStatus("Open this page in Claude to save entries to your account. Right now they're kept in this browser only.");
+  S.view === "month" ? renderMonth(today) : renderGrid(today);
+}
+function renderGrid(today){
+  const days = visibleDays(), a = P(days[0]), b = P(days[days.length-1]);
+  $("#range").textContent = days.length === 1 ? `${a.getMonth()+1}/${a.getDate()} ${EN[a.getDay()]}` : `${a.getMonth()+1}/${a.getDate()} – ${b.getMonth()+1}/${b.getDate()}`;
+  const heads = `<div></div>` + days.map(d => { const x = P(d);
+    return `<div class="${d===today?"today":""}"><span class="dnum">${x.getDate()}</span>${EN[x.getDay()]} <span class="kr">${KR[x.getDay()]}</span></div>`; }).join("");
+  const hours = `<div class="hours">` + Array.from({length:23},(_,i)=>`<span style="top:calc(var(--hh)*${i+1})">${pad(i+1)}:00</span>`).join("") + `</div>`;
+  const nowM = new Date().getHours()*60 + new Date().getMinutes();
+  const cols = days.map(d => `<div class="col${d===today?" today":""}">` + layout(occ(d)).map(o => {
+      const c = cat(o.ev.cat), top = o.s/60, point = o.e == null, h = point ? 0.42 : Math.max(0.42, (o.e - o.s)/60);
+      const w = 100/o.ncol, left = o.col*w;
+      const time = point ? hm(o.s) : o.cont ? `→ ${hm(o.e)}` : `${hm(o.s)}–${hm(o.e % 1440)}`;
+      const sub = subName(c, o.ev.sub);
+      return `<button class="ev${point?" point":""}" data-id="${o.ev.id}" style="--c:var(--${c.color});top:calc(var(--hh)*${top});height:calc(var(--hh)*${h} - 2px);left:calc(${left}% + 2px);width:calc(${w}% - 4px)">
+        <b>${esc(o.ev.title)}</b>${h >= 0.7 || point ? `<span class="t">${time}${sub && h >= 1 ? ` · ${esc(sub)}` : ""}</span>` : ""}</button>`;
+    }).join("") + (d === today ? `<div class="nowline" style="top:calc(var(--hh)*${nowM/60})"></div>` : "") + `</div>`).join("");
+  const empty = !S.events.length && S.mode !== "loading" ? `<div class="emptycal"><div><b style="color:var(--ink)">Nothing planned yet.</b><br>Classes, workouts and downtime will show up here. Press <b>+ Add</b> to fill in slides with photos or text, or send your schedule to Claude in chat.</div></div>` : "";
+  const keep = $(".scroller")?.scrollTop;
+  $("#cal").innerHTML = `<div class="heads" style="--n:${days.length}">${heads}</div><div class="scroller"><div class="grid" style="--n:${days.length}">${hours}${cols}${empty}</div></div>`;
+  const sc = $(".scroller");
+  if (keep != null && !S.jump) sc.scrollTop = keep;
+  else { const first = Math.min(7*60, ...days.flatMap(d => occ(d).filter(o => !o.cont).map(o => o.s)));
+    sc.scrollTop = Math.max(0, (first/60 - 0.5) * sc.querySelector(".grid").offsetHeight/24); S.jump = false; }
+}
+function renderMonth(today){
+  const a = P(S.anchor), first = ymd(new Date(a.getFullYear(), a.getMonth(), 1)), start = weekStart(first);
+  $("#range").textContent = `${a.toLocaleDateString("en-US",{month:"long",year:"numeric"})}`;
+  let html = [1,2,3,4,5,6,0].map(w => `<div class="mh">${EN[w]} ${KR[w]}</div>`).join("");
+  for (let i = 0; i < 42; i++) {
+    const d = add(start,i), x = P(d); if (i === 35 && x.getMonth() !== a.getMonth()) break;
+    const list = occ(d).filter(o => !o.cont), more = list.length - 3;
+    html += `<button class="mc${x.getMonth()!==a.getMonth()?" out":""}${d===today?" today":""}" data-goto="${d}"><span class="n">${x.getDate()}</span>` +
+      list.slice(0,3).map(o => `<span class="mi" style="--c:${colorOf(o.ev.cat)}"><span class="mono">${hm(o.s)}</span> ${esc(o.ev.title)}</span>`).join("") +
+      (more > 0 ? `<span class="mi muted" style="border:0">+${more} more</span>` : "") + `</button>`;
+  }
+  $("#cal").innerHTML = `<div class="month">${html}</div>`;
+}
+
+/* ---------- navigation ---------- */
+function step(dir){
+  if (S.view === "month") { const a = P(S.anchor); S.anchor = ymd(new Date(a.getFullYear(), a.getMonth()+dir, 1)); }
+  else S.anchor = add(S.anchor, dir * visibleDays().length);
+  S.jump = true; render();
+}
+$("#prev").onclick = () => step(-1);
+$("#next").onclick = () => step(1);
+$("#todayBtn").onclick = () => { S.anchor = ymd(new Date()); S.jump = true; render(); };
+$("#views").onclick = e => { const b = e.target.closest("button"); if (!b) return; S.view = b.dataset.v; S.jump = true; try { localStorage.setItem("planner.view", S.view); } catch {} render(); };
+$("#filters").addEventListener("click", e => {
+  if (e.target.closest("#catBtn")) { const p = $("#catPanel"); p.hidden = !p.hidden; renderCats(); if (!p.hidden) p.scrollIntoView({ block: "nearest" }); return; }
+  const f = e.target.closest("[data-filter]"); if (!f) return; const id = f.dataset.filter;
+  S.hidden.has(id) ? S.hidden.delete(id) : S.hidden.add(id);
+  try { localStorage.setItem("planner.hidden", JSON.stringify([...S.hidden])); } catch {}
+  render();
+});
+$("#cal").addEventListener("click", e => {
+  const m = e.target.closest("[data-goto]"); if (m) { S.anchor = m.dataset.goto; S.view = "day"; S.jump = true; render(); return; }
+  const v = e.target.closest(".ev"); if (v) openEntry(v.dataset.id);
+});
+let lastW = innerWidth; addEventListener("resize", () => { if ((lastW < 600) !== (innerWidth < 600)) render(); lastW = innerWidth; });
+setInterval(() => { if (S.view !== "month") render(); }, 60000);
+
+/* ---------- entry details ---------- */
+function describe(ev){
+  const t = ev.end ? `${ev.start}–${ev.end}` : ev.start;
+  const rep = ev.kind === "daily" ? "Every day" : ev.kind === "weekly" ? "Every " + [1,2,3,4,5,6,0].filter(w=>(ev.days||[]).includes(w)).map(w=>EN[w]).join(", ")
+    : P(ev.date).toLocaleDateString("en-US",{weekday:"short",month:"short",day:"numeric"});
+  const rng = ev.from || ev.until ? ` · ${ev.from || "…"} → ${ev.until || "…"}` : "";
+  return `${t} · ${rep}${rng}`;
+}
+let openId = null;
+function openEntry(id){
+  const ev = S.events.find(x => x.id === id); if (!ev) return; openId = id;
+  const c = cat(ev.cat), sub = subName(c, ev.sub);
+  $("#dTitle").innerHTML = `<span class="sw" style="--c:var(--${c.color});margin-right:8px"></span>${esc(ev.title)}`;
+  $("#dMeta").textContent = `${c.name}${sub ? ` · ${sub}` : ""} · ${describe(ev)}`;
+  $("#dNote").textContent = ev.note || "";
+  $("#dImg").hidden = !ev.photo; if (ev.photo) $("#dImg").src = ev.photo;
+  const b = $("#dDel"); b.dataset.armed = ""; b.textContent = ev.kind === "once" ? "Delete" : "Delete all repeats";
+  $("#dlg").showModal();
+}
+$("#dDel").onclick = async () => {
+  const b = $("#dDel");
+  if (!b.dataset.armed) { b.dataset.armed = "1"; b.textContent = "Press again to delete"; return; }
+  if (await del(openId)) { $("#dlg").close(); toast("Deleted"); }
+};
+$("#dEdit").onclick = () => {
+  const ev = S.events.find(x => x.id === openId); if (!ev) return; $("#dlg").close();
+  S.editId = ev.id; openPanel(); $("#manual").open = true;
+  $("#mTitle").value = ev.title; $("#mCat").value = cat(ev.cat).id; fillSubs(); $("#mSub").value = ev.sub || "";
+  $("#mKind").value = ev.kind; $("#mKind").onchange(); $("#mDate").value = ev.date || ymd(new Date());
+  $("#mStart").value = ev.start || ""; $("#mEnd").value = ev.end || ""; $("#mNote").value = ev.note || "";
+  S.mDays = new Set(ev.days || []); $$("#mDays button").forEach(x => x.setAttribute("aria-pressed", String(S.mDays.has(+x.dataset.v))));
+  $("#mSave").textContent = "Save changes"; $("#mCancel").hidden = false; $("#manualSum").textContent = `Editing "${ev.title}"`;
+  $("#manual").scrollIntoView({ block: "center" });
+};
+function resetManual(){
+  S.editId = null; $("#mForm").reset(); $("#mDate").value = ymd(new Date()); $("#mKind").onchange(); fillSubs();
+  S.mDays.clear(); $$("#mDays button").forEach(x => x.setAttribute("aria-pressed","false"));
+  $("#mSave").textContent = "Add entry"; $("#mCancel").hidden = true; $("#manualSum").textContent = "Or add one entry by hand";
+}
+$("#mCancel").onclick = resetManual;
+
+/* ---------- add panel: slides ---------- */
+function openPanel(){ $("#deckPanel").hidden = false; $("#addBtn").textContent = "Close"; }
+$("#addBtn").onclick = () => { const p = $("#deckPanel"); if (p.hidden) { openPanel(); renderDeck(); } else { p.hidden = true; $("#addBtn").textContent = "+ Add"; resetManual(); } };
+function renderDeck(){
+  $("#deck").innerHTML = S.slides.map((s, i) => `<div class="slide" data-i="${i}">
+    <div class="drop${s.img ? " has" : ""}">
+      ${s.img ? `<img src="${s.img.url}" alt="Photo on slide ${i+1}"><button class="rm" type="button" data-rmimg="${i}">Remove photo</button>`
+        : `<div class="hint"><b>Add a photo</b><span class="note">Tap to choose, or paste an image</span></div><input type="file" accept="image/*" data-file="${i}" aria-label="Photo for slide ${i+1}">`}
+    </div>
+    <textarea data-text="${i}" placeholder="${s.img ? "Describe the photo if it helps (optional).\n예: 이번 학기 시간표, 화목은 7시 반 시작" : "Write it down.\n예: 월수금 6시 헬스 (하체/상체), 토요일 아침 5km 러닝, 금요일 밤 넷플릭스"}" aria-label="Text for slide ${i+1}">${esc(s.text)}</textarea>
+  </div>`).join("");
+  renderDots(); goSlide(S.cur, false);
+}
+function renderDots(){
+  $("#dots").innerHTML = S.slides.map((s, i) => `<button class="dot${s.img || s.text.trim() ? " filled" : ""}" data-go="${i}" aria-current="${i === S.cur}" aria-label="Slide ${i+1}">${i+1}</button>`).join("");
+  $("#delSlide").hidden = S.slides.length < 2;
+}
+function goSlide(i, smooth = true){
+  S.cur = Math.max(0, Math.min(S.slides.length - 1, i)); const d = $("#deck");
+  d.scrollTo({ left: S.cur * (d.clientWidth + 12), behavior: smooth && !matchMedia("(prefers-reduced-motion: reduce)").matches ? "smooth" : "auto" });
+  $$("#dots .dot").forEach((b, j) => b.setAttribute("aria-current", String(j === S.cur)));
+}
+let scrollT; $("#deck").addEventListener("scroll", () => { clearTimeout(scrollT); scrollT = setTimeout(() => { const d = $("#deck"); const i = Math.round(d.scrollLeft / (d.clientWidth + 12)); if (i !== S.cur) { S.cur = i; $$("#dots .dot").forEach((b, j) => b.setAttribute("aria-current", String(j === S.cur))); } }, 80); });
+$("#dots").onclick = e => { const b = e.target.closest("[data-go]"); if (b) goSlide(+b.dataset.go); };
+$("#addSlide").onclick = () => { S.slides.push({ text:"", img:null }); S.cur = S.slides.length - 1; renderDeck(); };
+$("#delSlide").onclick = () => { if (S.slides.length < 2) return; S.slides.splice(S.cur, 1); S.cur = Math.min(S.cur, S.slides.length - 1); renderDeck(); };
+$("#deck").addEventListener("input", e => { const t = e.target.closest("[data-text]"); if (t) { S.slides[+t.dataset.text].text = t.value; renderDots(); } });
+$("#deck").addEventListener("change", async e => { const f = e.target.closest("[data-file]"); if (f && f.files[0]) setSlideImage(+f.dataset.file, f.files[0]); });
+$("#deck").addEventListener("click", e => { const r = e.target.closest("[data-rmimg]"); if (r) { S.slides[+r.dataset.rmimg].img = null; renderDeck(); } });
+document.addEventListener("paste", e => {
+  if ($("#deckPanel").hidden) return;
+  const item = [...(e.clipboardData?.items || [])].find(x => x.type.startsWith("image/")); if (!item) return;
+  e.preventDefault(); setSlideImage(S.cur, item.getAsFile());
+});
+function downscale(file, max){ return new Promise((res, rej) => { const img = new Image(); img.onload = () => {
+  const k = Math.min(1, max/Math.max(img.width,img.height)), c = document.createElement("canvas"); c.width = Math.round(img.width*k); c.height = Math.round(img.height*k);
+  c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(img.src); res(c); }; img.onerror = rej; img.src = URL.createObjectURL(file); }); }
+async function setSlideImage(i, file){
+  try {
+    const big = await downscale(file, 1600), small = await downscale(file, 360);
+    const blob = await new Promise(r => big.toBlob(r, "image/jpeg", 0.88));
+    S.slides[i].img = { blob, url: big.toDataURL("image/jpeg", 0.8), thumb: small.toDataURL("image/jpeg", 0.72) };
+    renderDeck();
+  } catch { toast("That file couldn't be read as an image."); }
+}
+
+/* ---------- Claude reads the slides ---------- */
+let sample = null;
+(async () => { const c = window.claude; sample = c ? await c.use("sample").catch(() => null) : null;
+  if (!sample) { $("#readBtn").disabled = true; $("#readNote").textContent = "Open this page in Claude to read slides. You can still add entries by hand below."; } })();
+function clean(ev){
+  const ok = t => typeof t === "string" && /^\d{1,2}:\d{2}$/.test(t) ? t.padStart(5,"0") : null;
+  const c = S.cats.find(x => x.id === ev.cat);
+  const o = { title: String(ev.title||"").slice(0,80) || "Entry", cat: c ? c.id : "other", sub: c && c.subs.some(s => s.id === ev.sub) ? ev.sub : "",
+    kind: ["once","weekly","daily"].includes(ev.kind) ? ev.kind : "once", start: ok(ev.start), end: ok(ev.end), note: String(ev.note||"").slice(0,500), src: "slides" };
+  if (!o.start) return null;
+  if (o.kind === "once") { o.date = /^\d{4}-\d{2}-\d{2}$/.test(ev.date||"") ? ev.date : null; if (!o.date) return null; }
+  if (o.kind === "weekly") { o.days = (Array.isArray(ev.days) ? ev.days : []).map(Number).filter(n => n>=0 && n<=6); if (!o.days.length) return null; }
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ev.from||"")) o.from = ev.from;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ev.until||"")) o.until = ev.until;
+  const sl = Number(ev.slide); if (Number.isInteger(sl) && S.slides[sl-1]?.img) o.photo = S.slides[sl-1].img.thumb;
+  return o;
+}
+$("#readBtn").onclick = async () => {
+  const used = S.slides.map((s, i) => ({ ...s, n: i + 1 })).filter(s => s.img || s.text.trim());
+  if (!used.length) return toast("Add a photo or some text to a slide first.");
+  const lim = await sample.limits().catch(() => null), maxImg = lim?.images?.maxCount ?? 0;
+  const withImg = used.filter(s => s.img);
+  if (withImg.length && !maxImg) return toast("Photos can't be read in this view. Describe them in text instead.");
+  if (withImg.length > maxImg) return toast(`Claude can read up to ${maxImg} photos at once. Remove some slides and try again.`);
+  const box = $("#proposal"), btn = $("#readBtn"); btn.disabled = true; box.hidden = false; box.textContent = "Reading your slides… this can take up to a minute with photos.";
+  const today = new Date();
+  const catText = S.cats.map(c => `- ${c.id} (${c.name}${c.kr ? ", " + c.kr : ""}): types ${c.subs.length ? c.subs.map(s => `${s.id} (${s.name})`).join(", ") : "none"}`).join("\n");
+  const existing = S.events.slice(0,200).map(ev => `${ev.id} | ${ev.title} | ${ev.cat}/${ev.sub||"-"} | ${describe(ev)}`).join("\n") || "(none)";
+  let imgNo = 0;
+  const slidesText = used.map(s => `Slide ${s.n}: ${s.img ? `[photo #${++imgNo} attached] ` : ""}${s.text.trim() ? `"""${s.text.trim().slice(0,3000)}"""` : "(no text)"}`).join("\n");
+  const prompt = `You keep a personal planner. The person filled in input slides. Each slide may have a photo (a timetable, flyer, screenshot, handwritten notes, etc.) and/or text, in Korean, English, or a mix. Text on a slide with a photo usually describes that photo. Turn everything into planner entries.
+Today is ${ymd(today)} (${EN[today.getDay()]}, ${KR[today.getDay()]}요일). Weeks start on Monday.
+
+Categories (use these ids):
+${catText}
+- other: anything that fits none of the above
+Hints: 수업/학원/과제/시험/동아리 → school (academic vs non-academic: classes, homework and exams are academic; clubs, volunteering, school events are non-academic). 헬스/웨이트/하체/상체 → training lifting; 러닝/달리기/조깅 → training running. 넷플릭스/드라마/영화 → chill netflix; 게임/롤/배그/발로란트 → chill gaming.
+Korean time words: 오전 AM, 오후/저녁/밤 PM, 새벽 early AM, 정오 12:00, 자정 00:00, 반 = :30. 평일 = Mon–Fri, 주말 = Sat–Sun, 매일 = every day.
+Day numbers: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat.
+kind "daily" = every day; "weekly" + "days" for repeating weekdays; "once" + "date" (YYYY-MM-DD) for one day. Resolve 내일, 이번 주 토요일, next Friday against today. Times are 24-hour "HH:MM"; "end" null for a moment. If no time is given, pick a sensible one and say so in "note".
+Set "slide" to the slide number the entry came from. Keep titles short and in the person's language. If something replaces an existing entry, put its id in "remove".
+
+Existing entries (id | title | category/type | when):
+${existing}
+
+Slides:
+${slidesText}
+
+Reply with only JSON:
+{"reply":"one short sentence on what you found, in the person's language","add":[{"title":"","cat":"school","sub":"academic","kind":"weekly","days":[1,3],"date":null,"start":"09:00","end":"10:30","from":null,"until":null,"note":"","slide":1}],"remove":[]}`;
+  try {
+    const r = await sample.json(prompt, withImg.length ? { images: withImg.map(s => s.img.blob) } : {});
+    const adds = (Array.isArray(r?.add) ? r.add : []).map(clean).filter(Boolean);
+    const rms = (Array.isArray(r?.remove) ? r.remove : []).filter(id => S.events.some(x => x.id === id));
+    S.pending = { adds, rms };
+    if (!adds.length && !rms.length) { box.textContent = (r?.reply ? r.reply + " " : "") + "No entries could be read. Try adding days and times to the text."; return; }
+    box.innerHTML = `<div>${esc(r?.reply || "")}</div><ul>` +
+      rms.map((id, i) => { const ev = S.events.find(x => x.id === id); return `<li class="rm"><label><input type="checkbox" checked data-prm="${i}"><i class="sw" style="--c:${colorOf(ev.cat)}"></i><span>Remove: ${esc(ev.title)} · ${esc(describe(ev))}</span></label></li>`; }).join("") +
+      adds.map((ev, i) => { const c = cat(ev.cat), sub = subName(c, ev.sub);
+        return `<li><label><input type="checkbox" checked data-padd="${i}"><i class="sw" style="--c:var(--${c.color})"></i><span><b>${esc(ev.title)}</b> · ${esc(c.name)}${sub ? ` / ${esc(sub)}` : ""} · ${esc(describe(ev))}${ev.note ? `<br><span class="note">${esc(ev.note)}</span>` : ""}</span></label></li>`; }).join("") +
+      `</ul><div class="row"><button class="btn" type="button" id="apply" style="flex:0 0 auto">Save checked entries</button><button class="btn ghost" type="button" id="discard" style="flex:0 0 auto">Discard</button></div>`;
+  } catch (e) {
+    box.textContent = e?.code === "not_granted" ? "Reading slides with Claude is turned off for this page. Use the form below to add entries by hand."
+      : e?.code === "rate_limited" ? "Too many requests right now. Wait a minute and try again."
+      : "Claude couldn't read those slides. Try adding a line of text like 월수금 19:00–21:00 수학 공부.";
+  } finally { btn.disabled = !sample; }
+};
+$("#proposal").addEventListener("click", async e => {
+  if (e.target.id === "discard") { S.pending = null; $("#proposal").hidden = true; return; }
+  if (e.target.id !== "apply" || !S.pending) return;
+  e.target.disabled = true;
+  const adds = S.pending.adds.filter((_, i) => $(`[data-padd="${i}"]`)?.checked), rms = S.pending.rms.filter((_, i) => $(`[data-prm="${i}"]`)?.checked);
+  let n = 0; for (const id of rms) await del(id);
+  for (const ev of adds) if (await put(ev)) n++;
+  S.pending = null; $("#proposal").hidden = true; S.slides = [{ text:"", img:null }]; S.cur = 0; renderDeck();
+  toast(`Saved ${n} entr${n===1?"y":"ies"}`); S.jump = true; render();
+});
+
+/* ---------- manual form ---------- */
+function fillCatSelects(){
+  const v = $("#mCat").value;
+  $("#mCat").innerHTML = S.cats.map(c => `<option value="${c.id}">${esc(c.name)}${c.kr ? " · " + esc(c.kr) : ""}</option>`).join("") + `<option value="other">Other</option>`;
+  if (v && [...$("#mCat").options].some(o => o.value === v)) $("#mCat").value = v;
+  fillSubs();
+}
+function fillSubs(){ const c = cat($("#mCat").value); $("#mSub").innerHTML = `<option value="">—</option>` + c.subs.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join(""); $("#mSub").disabled = !c.subs.length; }
+$("#mCat").onchange = fillSubs;
+$("#mDays").innerHTML = [1,2,3,4,5,6,0].map(w => `<button type="button" data-v="${w}" aria-pressed="false">${EN[w]}</button>`).join("");
+$("#mDate").value = ymd(new Date());
+$("#mKind").onchange = () => { const k = $("#mKind").value; $("#mDateWrap").hidden = k !== "once"; $("#mDaysWrap").hidden = k !== "weekly"; };
+$("#mDays").onclick = e => { const b = e.target.closest("button"); if (!b) return; const v = +b.dataset.v; S.mDays.has(v) ? S.mDays.delete(v) : S.mDays.add(v); b.setAttribute("aria-pressed", String(S.mDays.has(v))); };
+$("#mForm").onsubmit = async e => { e.preventDefault();
+  const kind = $("#mKind").value, prev = S.editId ? S.events.find(x => x.id === S.editId) : null;
+  const ev = { ...(prev || {}), title: $("#mTitle").value.trim(), cat: $("#mCat").value, sub: $("#mSub").value, kind, start: $("#mStart").value, end: $("#mEnd").value || null, note: $("#mNote").value.trim() };
+  if (!prev) ev.src = "manual";
+  if (!ev.title || !ev.start) return toast("Add a title and a start time.");
+  delete ev.date; delete ev.days;
+  if (kind === "once") ev.date = $("#mDate").value || ymd(new Date());
+  if (kind === "weekly") { if (!S.mDays.size) return toast("Pick at least one day."); ev.days = [...S.mDays]; if (!ev.from) ev.from = ymd(new Date()); }
+  if (await put(ev)) { toast(prev ? "Changes saved" : "Entry added"); const d = ev.date; resetManual(); if (d) { S.anchor = d; S.jump = true; render(); } }
+};
+
+/* ---------- categories editor ---------- */
+function slug(s){ const b = String(s).toLowerCase().replace(/[^a-z0-9]+/g, "").slice(0, 20); return (b || "c") + "-" + Math.random().toString(36).slice(2, 6); }
+function renderCats(){
+  if ($("#catPanel").hidden) return;
+  $("#catList").innerHTML = S.cats.map((c, i) => `<div class="catrow" data-ci="${i}">
+    <div class="swatches">${COLORS.map(k => `<button type="button" style="--c:var(--${k})" data-color="${k}" aria-pressed="${c.color === k}" aria-label="Colour ${k}"></button>`).join("")}</div>
+    <div style="display:grid;gap:6px;min-width:0">
+      <div class="row" style="align-items:center"><input data-cname value="${esc(c.name)}" aria-label="Category name" style="flex:1 1 140px"><input data-ckr value="${esc(c.kr||"")}" placeholder="한글 (optional)" aria-label="Korean name" style="flex:0 1 120px">
+        <button class="linkbtn" type="button" data-cdel style="flex:0 0 auto">${S.events.some(e => e.cat === c.id) ? "Delete (entries become Other)" : "Delete"}</button></div>
+      <div class="subs">${c.subs.map((s, j) => `<span class="sub">${esc(s.name)}<button type="button" data-sdel="${j}" aria-label="Remove ${esc(s.name)}">×</button></span>`).join("")}
+        <input data-snew placeholder="+ type, press Enter" aria-label="New type for ${esc(c.name)}"></div>
+    </div></div>`).join("");
+}
+$("#catClose").onclick = () => { $("#catPanel").hidden = true; };
+$("#catList").addEventListener("click", e => {
+  const row = e.target.closest("[data-ci]"); if (!row) return; const c = S.cats[+row.dataset.ci];
+  const col = e.target.closest("[data-color]"); if (col) { c.color = col.dataset.color; saveCats(); return; }
+  const sd = e.target.closest("[data-sdel]"); if (sd) { c.subs.splice(+sd.dataset.sdel, 1); saveCats(); return; }
+  const cd = e.target.closest("[data-cdel]"); if (cd) { if (!cd.dataset.armed) { cd.dataset.armed = "1"; cd.textContent = "Press again to delete"; return; } S.cats.splice(+row.dataset.ci, 1); saveCats(); }
+});
+$("#catList").addEventListener("change", e => {
+  const row = e.target.closest("[data-ci]"); if (!row) return; const c = S.cats[+row.dataset.ci];
+  if (e.target.matches("[data-cname]") && e.target.value.trim()) { c.name = e.target.value.trim(); saveCats(); }
+  if (e.target.matches("[data-ckr]")) { c.kr = e.target.value.trim(); saveCats(); }
+});
+$("#catList").addEventListener("keydown", e => {
+  if (e.key !== "Enter" || !e.target.matches("[data-snew]")) return; e.preventDefault();
+  const v = e.target.value.trim(); if (!v) return; const c = S.cats[+e.target.closest("[data-ci]").dataset.ci];
+  c.subs.push({ id: slug(v), name: v }); saveCats();
+});
+$("#catAdd").onsubmit = e => { e.preventDefault(); const v = $("#catName").value.trim(); if (!v) return toast("Name the category first.");
+  const used = new Set(S.cats.map(c => c.color)); S.cats.push({ id: slug(v), name: v, kr: "", color: COLORS.find(k => !used.has(k)) || "c7", subs: [] });
+  $("#catName").value = ""; saveCats(); };
+
+fillCatSelects(); renderDeck(); render(); connect();
+})();
+</script>
