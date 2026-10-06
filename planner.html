@@ -479,9 +479,9 @@ function downscale(file, max){ return new Promise((res, rej) => { const img = ne
   c.getContext("2d").drawImage(img,0,0,c.width,c.height); URL.revokeObjectURL(img.src); res(c); }; img.onerror = rej; img.src = URL.createObjectURL(file); }); }
 async function setSlideImage(i, file){
   try {
-    const big = await downscale(file, 1600), small = await downscale(file, 360);
+    const big = await downscale(file, 1600), small = await downscale(file, 360), full = await downscale(file, 3200);
     const blob = await new Promise(r => big.toBlob(r, "image/jpeg", 0.88));
-    S.slides[i].img = { blob, url: big.toDataURL("image/jpeg", 0.8), thumb: small.toDataURL("image/jpeg", 0.72) };
+    S.slides[i].img = { blob, full, url: big.toDataURL("image/jpeg", 0.8), thumb: small.toDataURL("image/jpeg", 0.72) };
     renderDeck();
   } catch {
     // this browser can't show the format (often HEIC), but Claude may still read the original file
@@ -498,6 +498,20 @@ let sample = null;
   if (!sample) { $("#readBtn").disabled = true; $("#readNote").textContent = "Open this page in Claude to read photos and text. You can still add entries by hand below."; } })();
 // common Korean high school bell schedule, used only when a timetable lists 교시 without clock times
 const BELL = { 1:["08:40","09:30"], 2:["09:40","10:30"], 3:["10:40","11:30"], 4:["11:40","12:30"], 5:["13:30","14:20"], 6:["14:30","15:20"], 7:["15:30","16:20"], 8:["16:30","17:20"] };
+// Claude sees each photo at about 1.2 megapixels, so a tall, dense timetable also goes out as overlapping strips that keep the small text readable
+async function photoParts(img, room){
+  const c = img.full; if (!c || room < 2) return [img.blob];
+  const { width: w, height: h } = c, n = Math.min(room - 1, 4, Math.ceil(h / (w * 0.5)));
+  if (n < 2) return [img.blob];
+  const over = Math.round(h * 0.08), step = h / n, parts = [img.blob];
+  for (let k = 0; k < n; k++) {
+    const y0 = Math.max(0, Math.round(k * step - over)), y1 = Math.min(h, Math.round((k + 1) * step + over));
+    const cv = document.createElement("canvas"); cv.width = w; cv.height = y1 - y0;
+    cv.getContext("2d").drawImage(c, 0, y0, w, y1 - y0, 0, 0, w, y1 - y0);
+    parts.push(await new Promise(r => cv.toBlob(r, "image/jpeg", 0.9)));
+  }
+  return parts;
+}
 function salvage(t){
   if (!t) return null; const i = t.indexOf("{"); if (i < 0) return null; const s = t.slice(i);
   try { return JSON.parse(s.slice(0, s.lastIndexOf("}") + 1)); } catch {}
@@ -510,7 +524,8 @@ function clean(ev){
   const o = { title: String(ev.title||"").slice(0,80) || "Entry", cat: c ? c.id : "other", sub: c && c.subs.some(s => s.id === ev.sub) ? ev.sub : "",
     kind: ["once","weekly","daily"].includes(ev.kind) ? ev.kind : (Array.isArray(ev.days) && ev.days.length ? "weekly" : "once"), start: ok(ev.start), end: ok(ev.end), note: String(ev.note||"").slice(0,500), src: "slides" };
   const per = parseInt(ev.period, 10);
-  if (!o.start && BELL[per]) { [o.start, o.end] = BELL[per]; o.note = (o.note ? o.note + " " : "") + `${per}교시: time guessed, tap Edit to fix.`; }
+  const perEnd = parseInt(ev.periodEnd, 10);
+  if (!o.start && BELL[per]) { o.start = BELL[per][0]; o.end = (BELL[perEnd] || BELL[per])[1]; o.note = (o.note ? o.note + " " : "") + `${per}${BELL[perEnd] && perEnd !== per ? "–" + perEnd : ""}교시: time guessed, tap Edit to fix.`; }
   if (!o.start) return null;
   if (o.kind === "once") { o.date = /^\d{4}-\d{2}-\d{2}$/.test(ev.date||"") ? ev.date : null; if (!o.date) return null; }
   if (o.kind === "weekly") { o.days = (Array.isArray(ev.days) ? ev.days : []).map(Number).filter(n => n>=0 && n<=6); if (!o.days.length) return null; }
@@ -532,8 +547,15 @@ $("#readBtn").onclick = async () => {
   const today = new Date();
   const catText = S.cats.map(c => `- ${c.id} (${c.name}${c.kr ? ", " + c.kr : ""}): types ${c.subs.length ? c.subs.map(s => `${s.id} (${s.name})`).join(", ") : "none"}`).join("\n");
   const existing = S.events.slice(0,200).map(ev => `${ev.id} | ${ev.title} | ${ev.cat}/${ev.sub||"-"} | ${describe(ev)}`).join("\n") || "(none)";
+  // one photo: send it whole plus zoomed strips when there is room
+  const images = [], photoNote = [];
+  for (const s of withImg) {
+    const parts = withImg.length === 1 ? await photoParts(s.img, maxImg) : [s.img.blob];
+    photoNote.push(parts.length > 1 ? `photo ${images.length + 1} is the whole page; photos ${images.length + 2}–${images.length + parts.length} are the same page cut into overlapping strips from top to bottom, for reading small text (don't add an entry twice because it appears in two strips, and use the dates/day headers from the whole page)` : `photo ${images.length + 1}`);
+    images.push(...parts);
+  }
   let imgNo = 0;
-  const slidesText = used.map(s => `Slide ${s.n}: ${s.img ? `[photo #${++imgNo} attached] ` : ""}${s.text.trim() ? `"""${s.text.trim().slice(0,3000)}"""` : "(no text)"}`).join("\n");
+  const slidesText = used.map(s => `Slide ${s.n}: ${s.img ? `[${photoNote[imgNo++]}] ` : ""}${s.text.trim() ? `"""${s.text.trim().slice(0,3000)}"""` : "(no text)"}`).join("\n");
   const prompt = `You keep a personal planner. The person filled in input slides. Each slide may have a photo (a timetable, flyer, screenshot, handwritten notes, etc.) and/or text, in Korean, English, or a mix. Text on a slide with a photo usually describes that photo. Turn everything into planner entries.
 Today is ${ymd(today)} (${EN[today.getDay()]}, ${KR[today.getDay()]}요일). Weeks start on Monday.
 
@@ -544,7 +566,8 @@ Hints: 수업/학원/과제/시험/동아리 → school (academic vs non-academi
 Korean time words: 오전 AM, 오후/저녁/밤 PM, 새벽 early AM, 정오 12:00, 자정 00:00, 반 = :30. 평일 = Mon–Fri, 주말 = Sat–Sun, 매일 = every day.
 Day numbers: 0=Sun 1=Mon 2=Tue 3=Wed 4=Thu 5=Fri 6=Sat.
 kind "daily" = every day; "weekly" + "days" for repeating weekdays; "once" + "date" (YYYY-MM-DD) for one day. Resolve 내일, 이번 주 토요일, next Friday against today. Times are 24-hour "HH:MM"; "end" null for a moment. If no time is given, pick a sensible one and say so in "note".
-School timetables (시간표): make one weekly entry per class, and combine the same subject at the same time on different weekdays into one entry with several "days". Use the clock times printed on the timetable. If it only shows periods (1교시, 2교시…) and the text doesn't give bell times, leave "start" and "end" null and set "period" to the period number. Skip empty cells, 점심 and 쉬는 시간. If a cell is hard to read, make your best guess and say so in "note".
+Dated schedules (a month or several weeks where each block or row shows dates, like 10월 with 5, 6, 7…): make one "once" entry per class on its exact date. Don't turn these into weekly repeats. Skip holidays (공휴일, 한글날, 대체공휴일) unless they have classes. A block covering several periods is one entry from the first period's start to the last period's end. Put the professor's name (in parentheses on the timetable) in "note".
+Repeating weekly timetables without dates (시간표): make one weekly entry per class, and combine the same subject at the same time on different weekdays into one entry with several "days". Use the clock times printed on the timetable. If it only shows periods (1교시, 2교시…) and the text doesn't give bell times, leave "start" and "end" null and set "period" to the first period number and "periodEnd" to the last. Skip empty cells, 점심 and 쉬는 시간. If a cell is hard to read, make your best guess and say so in "note".
 Set "slide" to the slide number the entry came from. Keep titles short and in the person's language. If something replaces an existing entry, put its id in "remove".
 
 Existing entries (id | title | category/type | when):
@@ -558,7 +581,7 @@ Reply with only JSON:
 Leave out fields that would be null or empty to keep the reply short.`;
   try {
     let r;
-    try { r = await sample.json(prompt, withImg.length ? { images: withImg.map(s => s.img.blob), modelTier: "complex" } : {}); }
+    try { r = await sample.json(prompt, withImg.length ? { images, modelTier: "complex" } : {}); }
     catch (e) { if (e?.code === "invalid_json" && (r = salvage(e.text))) {} else throw e; }
     const adds = (Array.isArray(r?.add) ? r.add : []).map(clean).filter(Boolean);
     const rms = (Array.isArray(r?.remove) ? r.remove : []).filter(id => S.events.some(x => x.id === id));
