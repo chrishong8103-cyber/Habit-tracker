@@ -130,12 +130,16 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--line);border
       <div class="field"><span>Units</span><div class="seg" id="sUnit"><button type="button" data-v="kg" aria-pressed="true">kg</button><button type="button" data-v="lb" aria-pressed="false">lb</button></div></div>
       <label class="field"><span>Experience</span><select id="sLevel"><option value="beginner">Beginner (under 1 year)</option><option value="intermediate">Intermediate (1+ years)</option></select></label>
       <label class="field"><span>Goal</span><select id="sGoal"><option value="strength">Strength</option><option value="hypertrophy">Muscle size</option><option value="general" selected>General fitness</option></select></label>
+      <label class="field"><span>Split</span><select id="sSplit"><option value="auto">Based on days (full body, upper/lower, push/pull/legs)</option><option value="bodypart">Body part (chest, back, legs, shoulders)</option></select></label>
       <label class="field"><span>Equipment</span><select id="sEquip"><option value="gym">Full gym</option><option value="db">Dumbbells + pull-up bar</option></select></label>
       <label class="field"><span>Session length</span><select id="sLen"><option value="45">45 min</option><option value="60" selected>60 min</option><option value="75">75 min</option><option value="90">90 min</option></select></label>
       <label class="field"><span>Program length</span><select id="sWeeks"><option value="4">4 weeks</option><option value="6">6 weeks</option><option value="8" selected>8 weeks</option><option value="12">12 weeks</option></select></label>
       <label class="field"><span>Deload</span><select id="sDeload"><option value="4" selected>Every 4th week</option><option value="5">Every 5th week</option><option value="0">None</option></select></label>
       <label class="field"><span>Starts the week of</span><input id="sStart" type="date"></label>
       <label class="field"><span>Smallest dumbbell / machine jump</span><select id="sJump"></select></label>
+    </div>
+    <div class="field" id="volBox" hidden><span>Weekly working sets per muscle. Blank uses the suggestion for your goal.</span>
+      <div class="grid3" id="volInputs"></div>
     </div>
     <div class="field"><span>Usual training days (2 to 6). You can pick different days for any single week in the plan.</span>
       <div class="seg" id="sDays"></div>
@@ -164,6 +168,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--line);border
     <div class="field"><span id="wdLabel">Days you can train this week</span>
       <div class="seg" id="weekDays"></div>
     </div>
+    <div class="summary" id="volume" hidden></div>
     <div class="actions"><span class="note" id="wdNote"></span><button class="swap" id="wdReset" type="button" hidden>Use my usual days</button></div>
   </section>
   <section class="sessions" id="sessions"></section>
@@ -181,6 +186,7 @@ input,select{width:100%;background:var(--bg);border:1px solid var(--line);border
       <li><b>Main barbell lifts, intermediate:</b> 3-week waves off a training max (90% of your estimated 1-rep max). Reps go down and load goes up each week. If you complete every session in a wave, the training max goes up for the next wave.</li>
       <li><b>Everything else:</b> double progression. Start at the bottom of the rep range and add a rep each time you complete it. At the top of the range, add the smallest jump and go back to the bottom.</li>
       <li><b>Too easy</b> moves you forward twice as fast. <b>Missed</b> keeps the same target for next time.</li>
+      <li><b>Body part split:</b> one body part a day, with triceps on chest day and biceps on back day. Each muscle has a weekly set target, and those sets are spread across its exercises. In a week with fewer days, parts are combined; if a combined day wouldn't fit your session length, every muscle's sets are trimmed by the same share, and the week shows how many you got against the target.</li>
       <li><b>Flexible weeks:</b> pick different days for any week and the sessions rotate in order (A, B, C, A…) onto the days you choose. A past session you didn't log counts as skipped, so the weight doesn't go up for it.</li>
       <li><b>Deload weeks</b> cut the sets and the load so you recover, and they don't count toward progression.</li>
     </ul>
@@ -222,8 +228,9 @@ const LIB = {
   legcurl:{n:"Leg Curl",k:"mach",p:"ham",lo:1}, slrdl:{n:"Single-leg DB RDL",k:"db",p:"ham",lo:1},
   calf:{n:"Standing Calf Raise",k:"mach",p:"calf",lo:1}, dbcalf:{n:"DB Calf Raise",k:"db",p:"calf",lo:1},
   hlr:{n:"Hanging Leg Raise",k:"bw",p:"core"},
+  cablefly:{n:"Cable Fly",k:"mach",p:"fly"}, dbfly:{n:"DB Fly",k:"db",p:"fly"}, hammer:{n:"Hammer Curl",k:"db",p:"bi"}, dips:{n:"Dips",k:"bw",p:"tri"},
 };
-const DBMAP = { squat:"goblet", front:"goblet", bench:"dbbench", incbar:"incdb", dead:"dbrdl", rdl:"dbrdl", ohp:"dbohp", row:"dbrow",
+const DBMAP = { cablefly:"dbfly", squat:"goblet", front:"goblet", bench:"dbbench", incbar:"incdb", dead:"dbrdl", rdl:"dbrdl", ohp:"dbohp", row:"dbrow",
   hipthrust:"dbhip", legpress:"split", pulldown:"pullup", cablerow:"dbrow", facepull:"rdfly", pushdown:"ohtri", legcurl:"slrdl", calf:"dbcalf" };
 // M main · S secondary · A accessory
 const TPL = {
@@ -243,6 +250,38 @@ const TPL = {
 };
 const SPLITS = { 2:["FA","FB"], 3:["FA","FB","FC"], 4:["UA","LA","UB","LB"], 5:["UA","LA","PU2","PL2","LB"], 6:["PU","PL","LG","PU2","PL2","LG2"] };
 const SLOTS = { 45:4, 60:5, 75:6, 90:7 };
+// body part split: one part per day, arms ride with chest and back; short weeks combine parts
+const PARTS = {
+  chest:     { t:"Chest",     x:[["bench","M"],["incdb","S"],["cablefly","A"],["dbbench","S"]] },
+  back:      { t:"Back",      x:[["dead","M","gym"],["pulldown","S"],["row","S"],["cablerow","S"]] },
+  legs:      { t:"Legs",      x:[["squat","M"],["rdl","S"],["legpress","S"],["legcurl","A"],["calf","A"]] },
+  shoulders: { t:"Shoulders", x:[["ohp","M"],["latraise","A"],["facepull","A"],["dbohp","S"]] },
+  triceps:   { t:"Triceps",   x:[["pushdown","A"],["ohtri","A"],["dips","A"]] },
+  biceps:    { t:"Biceps",    x:[["curl","A"],["hammer","A"]] },
+};
+const PART_ORDER = ["chest","back","legs","shoulders","biceps","triceps"];
+const BP_DAYS = {
+  1:[["chest","back","legs","shoulders","biceps","triceps"]],
+  2:[["chest","back","biceps","triceps"],["legs","shoulders"]],
+  3:[["chest","shoulders","triceps"],["back","biceps"],["legs"]],
+  4:[["chest","triceps"],["back","biceps"],["legs"],["shoulders"]],
+  5:[["chest"],["back"],["legs"],["shoulders"],["biceps","triceps"]],
+  6:[["chest"],["back"],["legs"],["shoulders"],["biceps","triceps"],["legs"]],
+};
+// weekly working sets per muscle (the usual evidence-based range is about 10–20 for big muscles)
+const VOL = {
+  strength:    { chest:10, back:10, legs:12, shoulders:8,  biceps:4, triceps:4 },
+  hypertrophy: { chest:14, back:14, legs:14, shoulders:12, biceps:8, triceps:8 },
+  general:     { chest:12, back:12, legs:12, shoulders:10, biceps:6, triceps:6 },
+};
+const CAP = { 45:14, 60:18, 75:22, 90:26 }; // working sets that fit in a session
+function allocSets(total, lifts){
+  const out = lifts.map(() => 0); let left = total;
+  for (let i = 0; i < lifts.length && left > 0; i++) { const g = Math.min(i === 0 && lifts[i].role === "M" ? 4 : 3, left); out[i] = g; left -= g; }
+  for (let i = 0, guard = 0; left > 0 && guard < 200; i++, guard++) { const j = i % lifts.length; if (out[j] < 6) { out[j]++; left--; } }
+  for (let j = out.length - 1; j > 0; j--) if (out[j] === 1) { out[j - 1]++; out[j] = 0; }
+  return out;
+}
 const REPS = {
   strength:    { M:5, dbM:[5,8],  S:[6,8],  A:[10,15] },
   hypertrophy: { M:8, dbM:[8,12], S:[8,12], A:[12,15] },
@@ -265,20 +304,52 @@ function build(cfg, logs){
   const days = [...cfg.days].sort((a,b) => MONFIRST.indexOf(a) - MONFIRST.indexOf(b));
   const names = SPLITS[days.length] || [];
   const nSlots = SLOTS[cfg.len] || 5;
+  const altsOf = id => Object.keys(LIB).filter(x => LIB[x].p === LIB[id].p && avail(x));
+  const pick = (id0, key) => { let id = cfg.equip === "db" ? (DBMAP[id0] || id0) : id0; const sw = cfg.swaps?.[key]; if (sw && LIB[sw] && avail(sw)) id = sw; return id; };
   const dayPlans = names.map(name => {
     const seen = new Set(), slots = [];
     TPL[name].x.forEach(([id0, role], i) => {
-      let id = cfg.equip === "db" ? (DBMAP[id0] || id0) : id0;
-      const key = `${name}:${i}`, sw = cfg.swaps?.[key];
-      if (sw && LIB[sw] && avail(sw)) id = sw;
+      const key = `${name}:${i}`, id = pick(id0, key);
       if (seen.has(id) || !avail(id)) return; seen.add(id);
-      slots.push({ id, role, slot: key, alts: Object.keys(LIB).filter(x => LIB[x].p === LIB[id].p && avail(x)) });
+      slots.push({ id, role, slot: key, alts: altsOf(id) });
     });
     return { name, title: TPL[name].t, slots: slots.slice(0, nSlots) };
   });
+  const start = monday(cfg.start || ymd(new Date())), sessions = [];
+  const dl = cfg.deload | 0, isDeload = w => dl > 0 && w % dl === 0;
+  const sortDays = a => [...a].sort((x, y) => MONFIRST.indexOf(x) - MONFIRST.indexOf(y));
+  const vol = { ...VOL[cfg.goal], ...(cfg.vol || {}) }, cap = CAP[cfg.len] || 18;
+  let n = 0;
+  for (let w = 1; w <= cfg.weeks; w++) {
+    const wdays = sortDays(cfg.weekDays?.[w] ?? days);
+    if (cfg.split === "bodypart") {
+      // build this week's sessions from its day count, spreading each muscle's weekly sets over the days it appears
+      const plan = (BP_DAYS[Math.min(6, wdays.length)] || []);
+      const appear = {}; plan.forEach(ps => ps.forEach(p => appear[p] = (appear[p] || 0) + 1));
+      wdays.slice(0, plan.length).forEach((wd, d) => {
+        const parts = plan[d], want = {}; parts.forEach(p => want[p] = num(vol[p]) / appear[p]);
+        const tot = Object.values(want).reduce((a, b) => a + b, 0), f = tot > cap ? cap / tot : 1;
+        const date = addDays(start, (w - 1) * 7 + MONFIRST.indexOf(wd)), seen = new Set(), lifts = [], got = {};
+        parts.forEach(p => {
+          const target = want[p] > 0 ? Math.max(2, Math.round(want[p] * f)) : 0; if (!target) return;
+          const cand = [];
+          PARTS[p].x.forEach(([id0, role, only], i) => { if (only && only !== cfg.equip) return; const key = `${p}:${i}`, id = pick(id0, key);
+            if (seen.has(id) || !avail(id)) return; seen.add(id); cand.push({ id, role, slot: key, alts: altsOf(id), part: p }); });
+          const a = allocSets(target, cand); got[p] = 0;
+          cand.forEach((c, i) => { if (a[i] > 0) { lifts.push({ ...c, sets: a[i], key: `${date}-${c.id}` }); got[p] += a[i]; } });
+        });
+        sessions.push({ w, d, date, title: parts.map(p => PARTS[p].t).join(" + "), deload: isDeload(w), lifts, parts: got });
+      });
+    } else wdays.forEach((wd, d) => {
+      // sessions rotate A → B → C … across whatever days each week has, so a short week just continues next week
+      const dp = dayPlans[n++ % dayPlans.length], date = addDays(start, (w - 1) * 7 + MONFIRST.indexOf(wd));
+      sessions.push({ w, d, date, title: dp.title, deload: isDeload(w), lifts: dp.slots.map(sl => ({ ...sl, key: `${date}-${sl.id}` })) });
+    });
+  }
   // one progression per exercise, using its most important role
   const rank = { M:0, S:1, A:2 }, info = {};
-  dayPlans.forEach(dp => dp.slots.forEach(s => { if (!info[s.id] || rank[s.role] < rank[info[s.id].role]) info[s.id] = { role: s.role }; }));
+  const allSlots = cfg.split === "bodypart" ? sessions.flatMap(x => x.lifts) : dayPlans.flatMap(dp => dp.slots);
+  allSlots.forEach(sl => { if (!info[sl.id] || rank[sl.role] < rank[info[sl.id].role]) info[sl.id] = { role: sl.role }; });
   for (const [id, o] of Object.entries(info)) {
     const L = LIB[id], R = REPS[cfg.goal];
     o.bar = L.k === "bar"; o.bw = L.k === "bw";
@@ -300,17 +371,7 @@ function build(cfg, logs){
     else o.start = null;
     o.occ = [];
   }
-  const start = monday(cfg.start || ymd(new Date())), sessions = [];
-  const dl = cfg.deload | 0, isDeload = w => dl > 0 && w % dl === 0;
-  // sessions rotate A → B → C … across whatever days each week has, so a short week just continues next week
-  const sortDays = a => [...a].sort((x, y) => MONFIRST.indexOf(x) - MONFIRST.indexOf(y));
-  let n = 0;
-  for (let w = 1; w <= cfg.weeks; w++) sortDays(cfg.weekDays?.[w] ?? days).forEach((wd, d) => {
-    const dp = dayPlans[n++ % dayPlans.length], date = addDays(start, (w - 1) * 7 + MONFIRST.indexOf(wd));
-    const s = { w, d, date, title: dp.title, deload: isDeload(w), lifts: dp.slots.map(sl => ({ ...sl, key: `${date}-${sl.id}` })) };
-    s.lifts.forEach(l => info[l.id].occ.push({ key: l.key, w, date }));
-    sessions.push(s);
-  });
+  sessions.forEach(x => x.lifts.forEach(l => info[l.id].occ.push({ key: l.key, w: x.w, date: x.date, sets: l.sets })));
   const today = ymd(new Date());
   // a lift trained 2+ times a week moves in half steps so the plan stays realistic
   for (const o of Object.values(info)) if (o.model === "linear" && o.occ.filter(x => x.w === 1).length >= 2) o.inc = Math.max(o.step, o.inc / 2);
@@ -327,23 +388,23 @@ function build(cfg, logs){
           if (cycle >= 0 && wt != null && cycAny) wt = cycMiss === 0 ? wt + o.inc : cycMiss >= 2 ? roundTo(wt * 0.95, o.step) : wt;
           cycle = c; cycMiss = 0; cycAny = false;
         }
-        if (deload) { rx[oc.key] = { sets: 3, reps: 5, weight: wt == null ? null : roundTo(wt * 0.6, o.step), deload, o }; return; }
+        if (deload) { rx[oc.key] = { sets: Math.max(2, Math.ceil((oc.sets ?? 6) / 2)), reps: 5, weight: wt == null ? null : roundTo(wt * 0.6, o.step), deload, o }; return; }
         const [sets, rp, pct] = WAVE[cfg.goal][k % 3];
-        rx[oc.key] = { sets, reps: rp, weight: wt == null ? null : roundTo(wt * pct, o.step), tm: wt, o };
+        rx[oc.key] = { sets: oc.sets ?? sets, reps: rp, weight: wt == null ? null : roundTo(wt * pct, o.step), tm: wt, o };
         if (wt != null && !skipped) { cycAny = true; if (r === "miss") cycMiss++; }
         return;
       }
       if (o.model === "linear") {
-        if (deload) { rx[oc.key] = { sets: 2, reps: o.lo, weight: wt == null ? null : roundTo(wt * 0.9, o.step), deload, o }; return; }
-        rx[oc.key] = { sets: o.sets, reps: o.lo, weight: wt, o };
+        if (deload) { rx[oc.key] = { sets: Math.max(2, Math.ceil((oc.sets ?? 4) / 2)), reps: o.lo, weight: wt == null ? null : roundTo(wt * 0.9, o.step), deload, o }; return; }
+        rx[oc.key] = { sets: oc.sets ?? o.sets, reps: o.lo, weight: wt, o };
         if (wt == null || skipped) return;
         if (r === "miss") { if (++misses >= 2) { wt = roundTo(wt * 0.9, o.step); misses = 0; } }
         else { wt += r === "easy" ? 2 * o.inc : o.inc; misses = 0; }
         return;
       }
       // double progression
-      if (deload) { rx[oc.key] = { sets: Math.max(2, o.sets - 1), reps: o.lo, weight: wt, deload, range: [o.lo, o.hi], o }; return; }
-      rx[oc.key] = { sets: o.sets, reps, weight: wt, range: [o.lo, o.hi], o };
+      if (deload) { rx[oc.key] = { sets: Math.max(2, (oc.sets ?? o.sets) - 1), reps: o.lo, weight: wt, deload, range: [o.lo, o.hi], o }; return; }
+      rx[oc.key] = { sets: oc.sets ?? o.sets, reps, weight: wt, range: [o.lo, o.hi], o };
       if (wt == null || skipped || r === "miss") return;
       reps += r === "easy" ? 2 : 1;
       if (reps > o.hi) { wt += o.inc; reps = o.lo; }
@@ -351,11 +412,11 @@ function build(cfg, logs){
     o.occ.forEach((oc, i) => { const n = o.occ.slice(i + 1).find(x => !isDeload(x.w)); rx[oc.key].next = n ? rx[n.key] : null; });
   }
   Object.values(rx).forEach(x => { if (x.weight != null) x.weight = clean(x.weight); });
-  return { cfg, sessions, info, rx, dayPlans, start, isDeload };
+  return { cfg, sessions, info, rx, dayPlans, start, isDeload, vol };
 }
 
 /* ---------- state + storage ---------- */
-const DEFAULT = () => ({ unit:"kg", level:"beginner", goal:"general", equip:"gym", len:60, weeks:8, deload:4,
+const DEFAULT = () => ({ unit:"kg", level:"beginner", goal:"general", split:"auto", equip:"gym", len:60, weeks:8, deload:4,
   start: monday(addDays(ymd(new Date()), 4)), jump:2.5, days:[1,3,5], bests:{}, starts:{}, swaps:{} });
 const S = { saved: null, draft: DEFAULT(), editing: true, logs: {}, week: null, mode: "loading", swapOpen: null };
 let db = null;
@@ -395,14 +456,22 @@ function fillForm(cfg){
   $$("#sUnit button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.v === cfg.unit)));
   $("#sLevel").value = cfg.level; $("#sGoal").value = cfg.goal; $("#sEquip").value = cfg.equip; $("#sLen").value = String(cfg.len);
   $("#sWeeks").value = String(cfg.weeks); $("#sDeload").value = String(cfg.deload); $("#sStart").value = cfg.start; fillJumps(cfg.unit, cfg.jump);
+  $("#sSplit").value = cfg.split || "auto"; renderVolInputs(cfg);
   $$("#sDays button").forEach(b => b.setAttribute("aria-pressed", String(cfg.days.includes(+b.dataset.v))));
   renderBests();
+}
+function renderVolInputs(cfg){
+  $("#volBox").hidden = cfg.split !== "bodypart";
+  const def = VOL[cfg.goal];
+  $("#volInputs").innerHTML = PART_ORDER.map(p => `<label class="field"><span>${PARTS[p].t}</span><input id="v_${p}" data-part="${p}" type="number" min="0" max="40" inputmode="numeric" placeholder="${def[p]} sets" value="${cfg.vol?.[p] ?? ""}"></label>`).join("");
 }
 function readForm(){
   const d = S.draft;
   d.unit = $("#sUnit [aria-pressed='true']").dataset.v; d.level = $("#sLevel").value; d.goal = $("#sGoal").value; d.equip = $("#sEquip").value;
   d.len = +$("#sLen").value; d.weeks = +$("#sWeeks").value; d.deload = +$("#sDeload").value; d.start = $("#sStart").value || ymd(new Date()); d.jump = +$("#sJump").value;
   d.days = $$("#sDays [aria-pressed='true']").map(b => +b.dataset.v);
+  d.split = $("#sSplit").value;
+  const vol = {}; $$("#volInputs input").forEach(i => { if (i.value !== "") vol[i.dataset.part] = Math.max(0, Math.round(num(i.value))); }); d.vol = vol;
 }
 function mainLifts(cfg){
   const p = build({ ...cfg, weeks: 1 }, {});
@@ -425,7 +494,7 @@ $("#setup").addEventListener("click", e => {
   const u = e.target.closest("#sUnit button"); if (u) { $$("#sUnit button").forEach(b => b.setAttribute("aria-pressed", String(b === u))); fillJumps(u.dataset.v); onForm(true); }
   const d = e.target.closest("#sDays button"); if (d) { d.setAttribute("aria-pressed", String(d.getAttribute("aria-pressed") !== "true")); onForm(true); }
 });
-$("#setup").addEventListener("change", e => { if (e.target.closest("#bests")) { readBests(); render(); } else onForm(["sEquip","sLen","sLevel"].includes(e.target.id)); });
+$("#setup").addEventListener("change", e => { if (e.target.closest("#bests")) { readBests(); render(); } else { onForm(["sEquip","sLen","sLevel","sSplit"].includes(e.target.id)); if (["sSplit","sGoal"].includes(e.target.id)) renderVolInputs(S.draft); } });
 $("#bests").addEventListener("input", () => { readBests(); render(); });
 function onForm(rebuildBests){ readForm(); if (rebuildBests) renderBests(); render(); }
 $("#save").onclick = async () => {
@@ -475,7 +544,7 @@ function render(){
   if (S.week == null || S.week > cfg.weeks) S.week = currentWeek(p);
   const goalName = { strength:"Strength", hypertrophy:"Muscle size", general:"General fitness" }[cfg.goal];
   const cw = currentWeek(p);
-  $("#summary").innerHTML = [ `Week ${cw} of ${cfg.weeks}`, goalName, cfg.level === "beginner" ? "Beginner" : "Intermediate", `${cfg.days.length} days`, cfg.equip === "gym" ? "Full gym" : "Dumbbells" ]
+  $("#summary").innerHTML = [ `Week ${cw} of ${cfg.weeks}`, goalName, cfg.level === "beginner" ? "Beginner" : "Intermediate", `${cfg.days.length} days`, cfg.split === "bodypart" ? "Body part split" : null, cfg.equip === "gym" ? "Full gym" : "Dumbbells" ].filter(Boolean)
     .map(t => `<span class="chip">${esc(t)}</span>`).join("");
 
   // week strip with one pip per session (filled = every lift logged)
@@ -489,6 +558,14 @@ function render(){
   $("#weekDays").innerHTML = MONFIRST.map(w => `<button type="button" data-wd="${w}" aria-pressed="${wdays.includes(w)}">${EN[w]}</button>`).join("");
   $("#wdNote").textContent = !wdays.length ? "No training this week. The rotation picks up next week." : custom ? "Custom days for this week only." : "Your usual days. Tap to change them for this week only.";
   $("#wdReset").hidden = !custom;
+  // weekly sets per muscle for the body part split
+  if (cfg.split === "bodypart") {
+    const got = {}; p.sessions.filter(x => x.w === S.week).forEach(x => Object.entries(x.parts || {}).forEach(([k, v]) => got[k] = (got[k] || 0) + v));
+    const dlw = p.isDeload(S.week);
+    $("#volume").innerHTML = `<span class="note" style="align-self:center">${dlw ? "Planned sets before the deload cut:" : "Sets this week:"}</span>` + PART_ORDER.filter(k => num(p.vol[k]) > 0).map(k => { const g = got[k] || 0, t = num(p.vol[k]);
+      return `<span class="chip${g < t ? " dl" : ""}">${PARTS[k].t} ${g}${g < t ? ` of ${t}` : ""}</span>`; }).join("");
+    $("#volume").hidden = false;
+  } else $("#volume").hidden = true;
   const today = ymd(new Date());
   $("#sessions").innerHTML = p.sessions.filter(s => s.w === S.week).map(s => {
     const dt = P(s.date);
